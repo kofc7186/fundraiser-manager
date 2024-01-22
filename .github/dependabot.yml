@@ -1,0 +1,22 @@
+version: 2
+updates:
+  # Maintain dependencies for Go
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+
+  - package-ecosystem: "gomod"
+    directory: "/controllers/event-lake-controller"
+    schedule:
+      interval: "monthly"
+
+  - package-ecosystem: "gomod"
+    directory: "/external-service-gateways/egress/egress-square-gateway"
+    schedule:
+      interval: "monthly"
+
+  - package-ecosystem: "gomod"
+    directory: "/external-service-gateways/ingress/square-webhook-ingress"
+    schedule:
+      interval: "monthly"
