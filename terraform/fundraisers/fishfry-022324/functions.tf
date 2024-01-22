@@ -31,6 +31,8 @@ module "square-webhook-ingress" {
 
   gcs_function_source_bucket = google_storage_bucket.function-source-bucket.name
 
+  expiration_time = var.expiration_time
+
   payment_events_topic = google_pubsub_topic.topic["${var.fundraiser_id}-payment-events"].name
 }
 

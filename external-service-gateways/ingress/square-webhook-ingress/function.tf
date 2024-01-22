@@ -80,6 +80,7 @@ resource "google_cloudfunctions2_function" "webhook" {
 
     environment_variables = {
       GCP_PROJECT          = "${var.gcp_project_id}"
+      EXPIRATION_TIME      = "${var.expiration_time}"
       PAYMENT_EVENTS_TOPIC = "${var.payment_events_topic}"
       WEBHOOK_URL          = "${local.webhook_url}"
     }

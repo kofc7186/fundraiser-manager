@@ -20,6 +20,11 @@ variable "gcs_function_source_bucket" {
   }
 }
 
+variable "expiration_time" {
+  description = "The expiration value for all Firestore documents created for the fundraiser, as expressed in a UTC timestamp string in RFC 3339 format; example is '2024-02-25T00:00:00Z'"
+  type        = string
+}
+
 variable "payment_events_topic" {
   description = "The pubsub topic where internal payment events are published"
   type        = string
