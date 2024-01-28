@@ -20,27 +20,17 @@ variable "gcs_function_source_bucket" {
   }
 }
 
+variable "fundraiser_id" {
+  description = "The unique ID for the specific fundraiser; example is 'fishfry-022324'"
+  type        = string
+}
+
 variable "expiration_time" {
   description = "The expiration value for all Firestore documents created for the fundraiser, as expressed in a UTC timestamp string in RFC 3339 format; example is '2024-02-25T00:00:00Z'"
   type        = string
 }
 
-variable "order_events_topic" {
-  description = "The pubsub topic where internal order events are published"
-  type        = string
-}
-
-variable "payment_events_topic" {
-  description = "The pubsub topic where internal payment events are published"
-  type        = string
-}
-
 variable "refund_events_topic" {
   description = "The pubsub topic where internal refund events are published"
-  type        = string
-}
-
-variable "customer_events_topic" {
-  description = "The pubsub topic where internal customer events are published"
   type        = string
 }

@@ -23,17 +23,23 @@ import (
 
 const PUBLISH_TIMEOUT_SEC = 2 * time.Second
 
+var orderEventsTopic *pubsub.Topic
 var paymentEventsTopic *pubsub.Topic
+var refundEventsTopic *pubsub.Topic
 var SQUARE_SIGNATURE_KEY string
 var WEBHOOK_URL string
+var ORDER_EVENTS_TOPIC string
 var PAYMENT_EVENTS_TOPIC string
+var REFUND_EVENTS_TOPIC string
 
 func init() {
 	slog.SetDefault(logging.Logger)
 
 	// if we don't have these environment variables set, we should panic ASAP
 	SQUARE_SIGNATURE_KEY = util.GetEnvOrPanic("SQUARE_SIGNATURE_KEY")
+	ORDER_EVENTS_TOPIC = util.GetEnvOrPanic("ORDER_EVENTS_TOPIC")
 	PAYMENT_EVENTS_TOPIC = util.GetEnvOrPanic("PAYMENT_EVENTS_TOPIC")
+	REFUND_EVENTS_TOPIC = util.GetEnvOrPanic("REFUND_EVENTS_TOPIC")
 	WEBHOOK_URL = util.GetEnvOrPanic("WEBHOOK_URL")
 
 	psClient, err := pubsub.NewClient(context.Background(), util.GetEnvOrPanic("GCP_PROJECT"))
@@ -41,9 +47,19 @@ func init() {
 		panic(err)
 	}
 
+	orderEventsTopic = psClient.Topic(ORDER_EVENTS_TOPIC)
+	if ok, err := orderEventsTopic.Exists(context.Background()); !ok || err != nil {
+		panic(fmt.Sprintf("existence check for %s failed: %v", ORDER_EVENTS_TOPIC, err))
+	}
+
 	paymentEventsTopic = psClient.Topic(PAYMENT_EVENTS_TOPIC)
 	if ok, err := paymentEventsTopic.Exists(context.Background()); !ok || err != nil {
 		panic(fmt.Sprintf("existence check for %s failed: %v", PAYMENT_EVENTS_TOPIC, err))
+	}
+
+	refundEventsTopic = psClient.Topic(REFUND_EVENTS_TOPIC)
+	if ok, err := refundEventsTopic.Exists(context.Background()); !ok || err != nil {
+		panic(fmt.Sprintf("existence check for %s failed: %v", REFUND_EVENTS_TOPIC, err))
 	}
 
 	// do this last so we are ensured to have all the required clients established above
@@ -62,15 +78,29 @@ func WebhookRouter(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// create the correct internal event
-	var internalEvent cloudevents.Event
+	var internalEvent *cloudevents.Event
 	switch t := webhookEvent.(type) {
+	case *whtypes.OrderCreated:
+		internalEvent, err = eventschemas.NewOrderReceived(t)
+	case *whtypes.OrderUpdated:
+		internalEvent, err = eventschemas.NewOrderUpdated(t)
 	case *whtypes.PaymentCreated:
-		internalEvent = eventschemas.NewPaymentReceived(t)
+		internalEvent, err = eventschemas.NewPaymentReceived(t)
 	case *whtypes.PaymentUpdated:
-		internalEvent = eventschemas.NewPaymentUpdated(t)
+		internalEvent, err = eventschemas.NewPaymentUpdated(t)
+	case *whtypes.RefundCreated:
+		internalEvent, err = eventschemas.NewRefundReceived(t)
+	case *whtypes.RefundUpdated:
+		internalEvent, err = eventschemas.NewRefundUpdated(t)
 	default:
 		err = errors.New("unsupported webhook event received")
 		slog.ErrorContext(r.Context(), err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(err.Error()))
+		return
+	}
+	if err != nil {
+		slog.ErrorContext(r.Context(), fmt.Sprintf("error creating internal event: %v", err.Error()))
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(err.Error()))
 		return

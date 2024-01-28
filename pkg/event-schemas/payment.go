@@ -3,6 +3,7 @@ package eventschemas
 import (
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	"github.com/kofc7186/fundraiser-manager/pkg/square/types/webhooks"
+	"github.com/kofc7186/fundraiser-manager/pkg/types"
 )
 
 const (
@@ -10,36 +11,63 @@ const (
 	PaymentUpdatedType  = "org.kofc7186.fundraiserManager.paymentUpdated"
 )
 
-type PaymentReceived struct {
-	OrderID string                   `json:"orderID"`
-	Raw     *webhooks.PaymentCreated `json:"raw"`
+type BasePayment struct {
+	Payment        *types.Payment
+	IdempotencyKey string
 }
 
-func NewPaymentReceived(squarePaymentCreatedEvent *webhooks.PaymentCreated) cloudevents.Event {
-	event := newEvent(PaymentReceivedType)
-	event.SetSubject(squarePaymentCreatedEvent.Data.Object.Payment.Id)
-
-	pr := &PaymentReceived{
-		OrderID: squarePaymentCreatedEvent.Data.Object.Payment.OrderId,
-		Raw:     squarePaymentCreatedEvent,
-	}
-	_ = event.SetData(applicationJSON, pr)
-	return event
+type PaymentReceived struct {
+	BasePayment
+	Raw *webhooks.PaymentCreated `json:"raw"`
 }
 
 type PaymentUpdated struct {
-	OrderID string                   `json:"orderID"`
-	Raw     *webhooks.PaymentUpdated `json:"raw"`
+	BasePayment
+	Raw *webhooks.PaymentUpdated `json:"raw"`
 }
 
-func NewPaymentUpdated(squarePaymentUpdatedEvent *webhooks.PaymentUpdated) cloudevents.Event {
+func NewPaymentReceived(squarePaymentCreatedEvent *webhooks.PaymentCreated) (*cloudevents.Event, error) {
+	event := newEvent(PaymentReceivedType)
+	event.SetSubject(squarePaymentCreatedEvent.Data.Object.Payment.Id)
+
+	p, err := types.CreateInternalPaymentFromSquarePayment(squarePaymentCreatedEvent.Data.Object.Payment)
+	if err != nil {
+		return nil, err
+	}
+
+	pr := &PaymentReceived{
+		BasePayment: BasePayment{
+			Payment:        p,
+			IdempotencyKey: squarePaymentCreatedEvent.EventID,
+		},
+		Raw: squarePaymentCreatedEvent,
+	}
+
+	if err = event.SetData(applicationJSON, pr); err != nil {
+		return nil, err
+	}
+	return event, nil
+}
+
+func NewPaymentUpdated(squarePaymentUpdatedEvent *webhooks.PaymentUpdated) (*cloudevents.Event, error) {
 	event := newEvent(PaymentUpdatedType)
 	event.SetSubject(squarePaymentUpdatedEvent.Data.Object.Payment.Id)
 
-	pr := &PaymentUpdated{
-		OrderID: squarePaymentUpdatedEvent.Data.Object.Payment.OrderId,
-		Raw:     squarePaymentUpdatedEvent,
+	p, err := types.CreateInternalPaymentFromSquarePayment(squarePaymentUpdatedEvent.Data.Object.Payment)
+	if err != nil {
+		return nil, err
 	}
-	_ = event.SetData(applicationJSON, pr)
-	return event
+
+	pu := &PaymentUpdated{
+		BasePayment: BasePayment{
+			Payment:        p,
+			IdempotencyKey: squarePaymentUpdatedEvent.EventID,
+		},
+		Raw: squarePaymentUpdatedEvent,
+	}
+
+	if err = event.SetData(applicationJSON, pu); err != nil {
+		return nil, err
+	}
+	return event, nil
 }

@@ -116,7 +116,10 @@ func EgressSquarePaymentGateway(ctx context.Context, e event.Event) error {
 		return fmt.Errorf("error(s) calling GetPayment: %v", payment.Errors)
 	}
 
-	responseEvent := eventschemas.NewSquareGetPaymentCompleted(*payment.Payment)
+	responseEvent, err := eventschemas.NewSquareGetPaymentCompleted(*payment.Payment)
+	if err != nil {
+		return err
+	}
 	responseEvent.SetExtension("request_source", nestedEvent.Source())
 
 	respBytes, err := responseEvent.MarshalJSON()
@@ -163,7 +166,10 @@ func EgressSquareOrderGateway(ctx context.Context, e event.Event) error {
 		return fmt.Errorf("error(s) calling RetrieveOrders: %v", order.Errors)
 	}
 
-	responseEvent := eventschemas.NewSquareGetOrderCompleted(*order.Order)
+	responseEvent, err := eventschemas.NewSquareGetOrderCompleted(*order.Order)
+	if err != nil {
+		return err
+	}
 	responseEvent.SetExtension("request_source", nestedEvent.Source())
 
 	respBytes, err := responseEvent.MarshalJSON()
@@ -210,7 +216,10 @@ func EgressSquareCustomerGateway(ctx context.Context, e event.Event) error {
 		return fmt.Errorf("error(s) calling RetrieveCustomers: %v", customer.Errors)
 	}
 
-	responseEvent := eventschemas.NewSquareGetCustomerCompleted(*customer.Customer)
+	responseEvent, err := eventschemas.NewSquareGetCustomerCompleted(*customer.Customer)
+	if err != nil {
+		return err
+	}
 	responseEvent.SetExtension("request_source", nestedEvent.Source())
 
 	respBytes, err := responseEvent.MarshalJSON()

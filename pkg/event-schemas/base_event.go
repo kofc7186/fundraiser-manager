@@ -8,7 +8,7 @@ import (
 
 const applicationJSON = "application/json"
 
-func newEvent(eventType string) cloudevents.Event {
+func newEvent(eventType string) *cloudevents.Event {
 	event := cloudevents.NewEvent()
 
 	event.SetSource(util.GetEnvOrPanic("K_SERVICE"))
@@ -20,5 +20,5 @@ func newEvent(eventType string) cloudevents.Event {
 	// This will be recorded as the field which triggers deletion upon a Firestore TTL policy sweep
 	event.SetExtension("expiration", util.GetEnvOrPanic("EXPIRATION_TIME"))
 
-	return event
+	return &event
 }

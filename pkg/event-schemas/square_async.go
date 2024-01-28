@@ -14,18 +14,18 @@ const (
 	SquareGetCustomerCompletedType = "org.kofc7186.fundraiserManager.square.getCustomerCompleted"
 )
 
-func NewSquareGetPaymentRequested(id string) cloudevents.Event {
+func NewSquareGetPaymentRequested(id string) (*cloudevents.Event, error) {
 	event := newEvent(SquareGetPaymentRequestedType)
 	event.SetSubject(id)
 
-	return event
+	return event, nil
 }
 
 type SquareGetPaymentCompleted struct {
 	Payment models.Payment `json:"payment"`
 }
 
-func NewSquareGetPaymentCompleted(squarePayment models.Payment) cloudevents.Event {
+func NewSquareGetPaymentCompleted(squarePayment models.Payment) (*cloudevents.Event, error) {
 	event := newEvent(SquareGetPaymentCompletedType)
 	event.SetSubject(squarePayment.Id)
 
@@ -34,21 +34,21 @@ func NewSquareGetPaymentCompleted(squarePayment models.Payment) cloudevents.Even
 	}
 
 	_ = event.SetData(applicationJSON, sgpc)
-	return event
+	return event, nil
 }
 
-func NewSquareGetOrderRequested(id string) cloudevents.Event {
+func NewSquareGetOrderRequested(id string) (*cloudevents.Event, error) {
 	event := newEvent(SquareGetOrderRequestedType)
 	event.SetSubject(id)
 
-	return event
+	return event, nil
 }
 
 type SquareGetOrderCompleted struct {
 	Order models.Order `json:"order"`
 }
 
-func NewSquareGetOrderCompleted(squareOrder models.Order) cloudevents.Event {
+func NewSquareGetOrderCompleted(squareOrder models.Order) (*cloudevents.Event, error) {
 	event := newEvent(SquareGetOrderCompletedType)
 	event.SetSubject(squareOrder.Id)
 
@@ -57,21 +57,21 @@ func NewSquareGetOrderCompleted(squareOrder models.Order) cloudevents.Event {
 	}
 
 	_ = event.SetData(applicationJSON, sgoc)
-	return event
+	return event, nil
 }
 
-func NewSquareGetCustomerRequested(id string) cloudevents.Event {
+func NewSquareGetCustomerRequested(id string) (*cloudevents.Event, error) {
 	event := newEvent(SquareGetCustomerRequestedType)
 	event.SetSubject(id)
 
-	return event
+	return event, nil
 }
 
 type SquareGetCustomerCompleted struct {
 	Customer models.Customer `json:"customer"`
 }
 
-func NewSquareGetCustomerCompleted(squareCustomer models.Customer) cloudevents.Event {
+func NewSquareGetCustomerCompleted(squareCustomer models.Customer) (*cloudevents.Event, error) {
 	event := newEvent(SquareGetCustomerCompletedType)
 	event.SetSubject(squareCustomer.Id)
 
@@ -80,5 +80,5 @@ func NewSquareGetCustomerCompleted(squareCustomer models.Customer) cloudevents.E
 	}
 
 	_ = event.SetData(applicationJSON, sgcc)
-	return event
+	return event, nil
 }

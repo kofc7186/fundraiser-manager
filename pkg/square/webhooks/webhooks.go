@@ -57,6 +57,14 @@ func VerifySquareWebhook(r *http.Request, signatureKey, notificationURL string) 
 
 	var typedEventPointer webhooks.SquareWebhookEvent
 	switch baseWebhookEvent.Type {
+	case webhooks.SQUARE_WEBHOOK_CUSTOMER_CREATED:
+		typedEventPointer = &webhooks.CustomerCreated{}
+	case webhooks.SQUARE_WEBHOOK_CUSTOMER_UPDATED:
+		typedEventPointer = &webhooks.CustomerUpdated{}
+	case webhooks.SQUARE_WEBHOOK_ORDER_CREATED:
+		typedEventPointer = &webhooks.OrderCreated{}
+	case webhooks.SQUARE_WEBHOOK_ORDER_UPDATED:
+		typedEventPointer = &webhooks.OrderUpdated{}
 	case webhooks.SQUARE_WEBHOOK_PAYMENT_CREATED:
 		typedEventPointer = &webhooks.PaymentCreated{}
 	case webhooks.SQUARE_WEBHOOK_PAYMENT_UPDATED:

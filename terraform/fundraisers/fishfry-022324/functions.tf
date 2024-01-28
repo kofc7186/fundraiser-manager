@@ -33,7 +33,10 @@ module "square-webhook-ingress" {
 
   expiration_time = var.expiration_time
 
-  payment_events_topic = google_pubsub_topic.topic["${var.fundraiser_id}-payment-events"].name
+  customer_events_topic = google_pubsub_topic.topic["${var.fundraiser_id}-customer-events"].name
+  order_events_topic    = google_pubsub_topic.topic["${var.fundraiser_id}-order-events"].name
+  payment_events_topic  = google_pubsub_topic.topic["${var.fundraiser_id}-payment-events"].name
+  refund_events_topic   = google_pubsub_topic.topic["${var.fundraiser_id}-refund-events"].name
 }
 
 module "egress-square-gateway" {
@@ -68,4 +71,32 @@ module "event-lake-controller" {
   expiration_time = var.expiration_time
 
   topics_to_monitor = local.topic_list
+}
+
+module "payment-controller" {
+  source = "../../../controllers/payment-controller"
+
+  gcp_project_id = var.gcp_project_id
+  gcp_region     = var.gcp_region
+
+  gcs_function_source_bucket = google_storage_bucket.function-source-bucket.name
+
+  fundraiser_id   = var.fundraiser_id
+  expiration_time = var.expiration_time
+
+  payment_events_topic = google_pubsub_topic.topic["${var.fundraiser_id}-payment-events"].name
+}
+
+module "refund-controller" {
+  source = "../../../controllers/refund-controller"
+
+  gcp_project_id = var.gcp_project_id
+  gcp_region     = var.gcp_region
+
+  gcs_function_source_bucket = google_storage_bucket.function-source-bucket.name
+
+  fundraiser_id   = var.fundraiser_id
+  expiration_time = var.expiration_time
+
+  refund_events_topic = google_pubsub_topic.topic["${var.fundraiser_id}-refund-events"].name
 }

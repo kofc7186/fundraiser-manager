@@ -3,6 +3,8 @@ locals {
     "payment-events",
     "order-events",
     "label-events",
+    "customer-events",
+    "refund-events",
     "square-payment-request",
     "square-payment-response",
     "square-order-request",

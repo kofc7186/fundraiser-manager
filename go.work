@@ -2,7 +2,10 @@ go 1.21
 
 use (
     ./
+	./controllers/customer-controller
 	./controllers/event-lake-controller
+	./controllers/payment-controller
+	./controllers/refund-controller
 	./external-service-gateways/egress/egress-square-gateway
 	./external-service-gateways/ingress/square-webhook-ingress
 )

@@ -21,7 +21,7 @@ type RefundCreatedEventData struct {
 }
 
 type RefundCreatedEventObject struct {
-	Refund models.Refund `json:"refund"`
+	Refund models.PaymentRefund `json:"refund"`
 }
 
 type RefundUpdated struct {
@@ -36,5 +36,5 @@ type RefundUpdatedEventData struct {
 }
 
 type RefundUpdatedEventObject struct {
-	Refund models.Refund `json:"refund"`
+	Refund models.PaymentRefund `json:"refund"`
 }
