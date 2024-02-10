@@ -83,9 +83,9 @@ resource "google_cloudfunctions2_function" "event_lake_capture" {
     timeout_seconds  = 60
 
     environment_variables = {
-      GCP_PROJECT     = "${var.gcp_project_id}"
-      FUNDRAISER_ID   = "${var.fundraiser_id}"
-      EXPIRATION_TIME = "${var.expiration_time}"
+      GCP_PROJECT     = var.gcp_project_id
+      FUNDRAISER_ID   = var.fundraiser_id
+      EXPIRATION_TIME = var.expiration_time
     }
   }
 

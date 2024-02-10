@@ -33,10 +33,10 @@ module "square-webhook-ingress" {
 
   expiration_time = var.expiration_time
 
-  customer_events_topic = google_pubsub_topic.topic["${var.fundraiser_id}-customer-events"].name
-  order_events_topic    = google_pubsub_topic.topic["${var.fundraiser_id}-order-events"].name
-  payment_events_topic  = google_pubsub_topic.topic["${var.fundraiser_id}-payment-events"].name
-  refund_events_topic   = google_pubsub_topic.topic["${var.fundraiser_id}-refund-events"].name
+  square_order_request_topic = google_pubsub_topic.topic["${var.fundraiser_id}-square-order-request"].name
+  customer_events_topic      = google_pubsub_topic.topic["${var.fundraiser_id}-customer-events"].name
+  payment_events_topic       = google_pubsub_topic.topic["${var.fundraiser_id}-payment-events"].name
+  refund_events_topic        = google_pubsub_topic.topic["${var.fundraiser_id}-refund-events"].name
 }
 
 module "egress-square-gateway" {
@@ -47,6 +47,7 @@ module "egress-square-gateway" {
 
   gcs_function_source_bucket = google_storage_bucket.function-source-bucket.name
 
+  fundraiser_id   = var.fundraiser_id
   expiration_time = var.expiration_time
 
   square_environment = "production"
@@ -99,4 +100,35 @@ module "refund-controller" {
   expiration_time = var.expiration_time
 
   refund_events_topic = google_pubsub_topic.topic["${var.fundraiser_id}-refund-events"].name
+}
+
+module "customer-controller" {
+  source = "../../../controllers/customer-controller"
+
+  gcp_project_id = var.gcp_project_id
+  gcp_region     = var.gcp_region
+
+  gcs_function_source_bucket = google_storage_bucket.function-source-bucket.name
+
+  fundraiser_id   = var.fundraiser_id
+  expiration_time = var.expiration_time
+
+  customer_events_topic = google_pubsub_topic.topic["${var.fundraiser_id}-customer-events"].name
+  square_customer_request_topic = google_pubsub_topic.topic["${var.fundraiser_id}-square-customer-request"].name
+  square_customer_response_topic = google_pubsub_topic.topic["${var.fundraiser_id}-square-customer-response"].name
+}
+
+module "order-controller" {
+  source = "../../../controllers/order-controller"
+
+  gcp_project_id = var.gcp_project_id
+  gcp_region     = var.gcp_region
+
+  gcs_function_source_bucket = google_storage_bucket.function-source-bucket.name
+
+  fundraiser_id   = var.fundraiser_id
+  expiration_time = var.expiration_time
+
+  order_events_topic = google_pubsub_topic.topic["${var.fundraiser_id}-order-events"].name
+  square_order_response_topic = google_pubsub_topic.topic["${var.fundraiser_id}-square-order-response"].name
 }

@@ -12,8 +12,8 @@ const (
 )
 
 type BasePayment struct {
-	Payment        *types.Payment
-	IdempotencyKey string
+	Payment        *types.Payment `json:"payment"`
+	IdempotencyKey string         `json:"idempotencyKey"`
 }
 
 type PaymentReceived struct {

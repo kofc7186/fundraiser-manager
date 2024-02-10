@@ -76,6 +76,7 @@ func init() {
 	}
 
 	retryClient := retryablehttp.NewClient()
+	retryClient.Logger = logging.Logger
 	configuration.HTTPClient = retryClient.StandardClient()
 
 	// configure authentication credentials

@@ -89,6 +89,16 @@ func writeSquareRefundToFirestore(ctx context.Context, e *event.Event) error {
 		proposedRefund = ru.BaseRefund.Refund
 	}
 
+	// make sure to update the map to denote that we've processed this event already
+	//
+	// the boolean here is only to allow Firestore to map back to Go struct; the important
+	// thing is that the key is put into the map
+	proposedRefund.IdempotencyKeys = make(map[string]bool, 1)
+	proposedRefund.IdempotencyKeys[idempotencyKey] = true
+
+	// ensure the firestore expiration timestamp is written in the appropriate field
+	proposedRefund.Expiration = expirationTime
+
 	docRef := firestoreClient.Doc(fmt.Sprintf("%s/%s", refundDocPath, proposedRefund.ID))
 	transaction := func(ctx context.Context, t *firestore.Transaction) error {
 		docSnap, err := t.Get(docRef)
@@ -127,14 +137,10 @@ func writeSquareRefundToFirestore(ctx context.Context, e *event.Event) error {
 			return nil
 		}
 
-		// make sure to update the map to denote that we've processed this event already
-		//
-		// the boolean here is only to allow Firestore to map back to Go struct; the important
-		// thing is that the key is put into the map
-		proposedRefund.IdempotencyKeys[idempotencyKey] = true
-
-		// ensure the firestore expiration timestamp is written in the appropriate field
-		proposedRefund.Expiration = expirationTime
+		// copy over idempotency keys from what we've seen before
+		for key, val := range persistedRefund.IdempotencyKeys {
+			proposedRefund.IdempotencyKeys[key] = val
+		}
 
 		// if we get here, we have a newer proposal for payment so let's write it
 		return t.Set(docRef, proposedRefund)

@@ -4,6 +4,7 @@ use (
     ./
 	./controllers/customer-controller
 	./controllers/event-lake-controller
+	./controllers/order-controller
 	./controllers/payment-controller
 	./controllers/refund-controller
 	./external-service-gateways/egress/egress-square-gateway

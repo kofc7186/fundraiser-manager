@@ -3,6 +3,7 @@ package eventschemas
 import (
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	"github.com/kofc7186/fundraiser-manager/pkg/square/types/models"
+	"github.com/kofc7186/fundraiser-manager/pkg/types"
 )
 
 const (
@@ -14,69 +15,93 @@ const (
 	SquareGetCustomerCompletedType = "org.kofc7186.fundraiserManager.square.getCustomerCompleted"
 )
 
-func NewSquareGetPaymentRequested(id string) (*cloudevents.Event, error) {
+func NewSquareGetPaymentRequested(id string) *cloudevents.Event {
 	event := newEvent(SquareGetPaymentRequestedType)
 	event.SetSubject(id)
 
-	return event, nil
+	return event
 }
 
 type SquareGetPaymentCompleted struct {
-	Payment models.Payment `json:"payment"`
+	BasePayment
 }
 
 func NewSquareGetPaymentCompleted(squarePayment models.Payment) (*cloudevents.Event, error) {
 	event := newEvent(SquareGetPaymentCompletedType)
 	event.SetSubject(squarePayment.Id)
 
+	payment, err := types.CreateInternalPaymentFromSquarePayment(squarePayment)
+	if err != nil {
+		return nil, err
+	}
+
 	sgpc := &SquareGetPaymentCompleted{
-		Payment: squarePayment,
+		BasePayment: BasePayment{
+			Payment:        payment,
+			IdempotencyKey: "",
+		},
 	}
 
 	_ = event.SetData(applicationJSON, sgpc)
 	return event, nil
 }
 
-func NewSquareGetOrderRequested(id string) (*cloudevents.Event, error) {
+func NewSquareGetOrderRequested(id string) *cloudevents.Event {
 	event := newEvent(SquareGetOrderRequestedType)
 	event.SetSubject(id)
 
-	return event, nil
+	return event
 }
 
 type SquareGetOrderCompleted struct {
-	Order models.Order `json:"order"`
+	BaseOrder
 }
 
 func NewSquareGetOrderCompleted(squareOrder models.Order) (*cloudevents.Event, error) {
 	event := newEvent(SquareGetOrderCompletedType)
 	event.SetSubject(squareOrder.Id)
 
+	order, err := types.CreateInternalOrderFromSquareOrder(squareOrder)
+	if err != nil {
+		return nil, err
+	}
+
 	sgoc := &SquareGetOrderCompleted{
-		Order: squareOrder,
+		BaseOrder: BaseOrder{
+			Order:          order,
+			IdempotencyKey: "",
+		},
 	}
 
 	_ = event.SetData(applicationJSON, sgoc)
 	return event, nil
 }
 
-func NewSquareGetCustomerRequested(id string) (*cloudevents.Event, error) {
+func NewSquareGetCustomerRequested(id string) *cloudevents.Event {
 	event := newEvent(SquareGetCustomerRequestedType)
 	event.SetSubject(id)
 
-	return event, nil
+	return event
 }
 
 type SquareGetCustomerCompleted struct {
-	Customer models.Customer `json:"customer"`
+	BaseCustomer
 }
 
 func NewSquareGetCustomerCompleted(squareCustomer models.Customer) (*cloudevents.Event, error) {
 	event := newEvent(SquareGetCustomerCompletedType)
 	event.SetSubject(squareCustomer.Id)
 
+	customer, err := types.CreateInternalCustomerFromSquareCustomer(squareCustomer)
+	if err != nil {
+		return nil, err
+	}
+
 	sgcc := &SquareGetCustomerCompleted{
-		Customer: squareCustomer,
+		BaseCustomer: BaseCustomer{
+			Customer:       customer,
+			IdempotencyKey: "",
+		},
 	}
 
 	_ = event.SetData(applicationJSON, sgcc)

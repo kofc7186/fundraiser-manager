@@ -5,4 +5,5 @@ gcp_region     = "us-east1"
 
 firestore_expiration_field_name = "expiration"
 
-expiration_time = "2024-02-25T00:00:00Z"
+# this is set for EST (UTC-5)
+expiration_time = "2024-02-25T05:00:00Z"

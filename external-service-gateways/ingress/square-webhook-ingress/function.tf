@@ -79,10 +79,13 @@ resource "google_cloudfunctions2_function" "webhook" {
     timeout_seconds  = 60
 
     environment_variables = {
-      GCP_PROJECT          = "${var.gcp_project_id}"
-      EXPIRATION_TIME      = "${var.expiration_time}"
-      PAYMENT_EVENTS_TOPIC = "${var.payment_events_topic}"
-      WEBHOOK_URL          = "${local.webhook_url}"
+      GCP_PROJECT                = var.gcp_project_id
+      EXPIRATION_TIME            = var.expiration_time
+      PAYMENT_EVENTS_TOPIC       = var.payment_events_topic
+      SQUARE_ORDER_REQUEST_TOPIC = var.square_order_request_topic
+      CUSTOMER_EVENTS_TOPIC      = var.customer_events_topic
+      REFUND_EVENTS_TOPIC        = var.refund_events_topic
+      WEBHOOK_URL                = local.webhook_url
     }
 
     secret_environment_variables {

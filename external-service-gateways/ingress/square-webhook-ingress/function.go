@@ -23,23 +23,26 @@ import (
 
 const PUBLISH_TIMEOUT_SEC = 2 * time.Second
 
-var orderEventsTopic *pubsub.Topic
+var squareOrderRequestTopic *pubsub.Topic
 var paymentEventsTopic *pubsub.Topic
 var refundEventsTopic *pubsub.Topic
+var customerEventsTopic *pubsub.Topic
 var SQUARE_SIGNATURE_KEY string
 var WEBHOOK_URL string
-var ORDER_EVENTS_TOPIC string
+var SQUARE_ORDER_REQUEST_TOPIC string
 var PAYMENT_EVENTS_TOPIC string
 var REFUND_EVENTS_TOPIC string
+var CUSTOMER_EVENTS_TOPIC string
 
 func init() {
 	slog.SetDefault(logging.Logger)
 
 	// if we don't have these environment variables set, we should panic ASAP
 	SQUARE_SIGNATURE_KEY = util.GetEnvOrPanic("SQUARE_SIGNATURE_KEY")
-	ORDER_EVENTS_TOPIC = util.GetEnvOrPanic("ORDER_EVENTS_TOPIC")
+	SQUARE_ORDER_REQUEST_TOPIC = util.GetEnvOrPanic("SQUARE_ORDER_REQUEST_TOPIC")
 	PAYMENT_EVENTS_TOPIC = util.GetEnvOrPanic("PAYMENT_EVENTS_TOPIC")
 	REFUND_EVENTS_TOPIC = util.GetEnvOrPanic("REFUND_EVENTS_TOPIC")
+	CUSTOMER_EVENTS_TOPIC = util.GetEnvOrPanic("CUSTOMER_EVENTS_TOPIC")
 	WEBHOOK_URL = util.GetEnvOrPanic("WEBHOOK_URL")
 
 	psClient, err := pubsub.NewClient(context.Background(), util.GetEnvOrPanic("GCP_PROJECT"))
@@ -47,9 +50,9 @@ func init() {
 		panic(err)
 	}
 
-	orderEventsTopic = psClient.Topic(ORDER_EVENTS_TOPIC)
-	if ok, err := orderEventsTopic.Exists(context.Background()); !ok || err != nil {
-		panic(fmt.Sprintf("existence check for %s failed: %v", ORDER_EVENTS_TOPIC, err))
+	squareOrderRequestTopic = psClient.Topic(SQUARE_ORDER_REQUEST_TOPIC)
+	if ok, err := squareOrderRequestTopic.Exists(context.Background()); !ok || err != nil {
+		panic(fmt.Sprintf("existence check for %s failed: %v", SQUARE_ORDER_REQUEST_TOPIC, err))
 	}
 
 	paymentEventsTopic = psClient.Topic(PAYMENT_EVENTS_TOPIC)
@@ -60,6 +63,11 @@ func init() {
 	refundEventsTopic = psClient.Topic(REFUND_EVENTS_TOPIC)
 	if ok, err := refundEventsTopic.Exists(context.Background()); !ok || err != nil {
 		panic(fmt.Sprintf("existence check for %s failed: %v", REFUND_EVENTS_TOPIC, err))
+	}
+
+	customerEventsTopic = psClient.Topic(CUSTOMER_EVENTS_TOPIC)
+	if ok, err := customerEventsTopic.Exists(context.Background()); !ok || err != nil {
+		panic(fmt.Sprintf("existence check for %s failed: %v", CUSTOMER_EVENTS_TOPIC, err))
 	}
 
 	// do this last so we are ensured to have all the required clients established above
@@ -79,19 +87,33 @@ func WebhookRouter(w http.ResponseWriter, r *http.Request) {
 
 	// create the correct internal event
 	var internalEvent *cloudevents.Event
+	var pubTopic *pubsub.Topic
 	switch t := webhookEvent.(type) {
-	case *whtypes.OrderCreated:
-		internalEvent, err = eventschemas.NewOrderReceived(t)
-	case *whtypes.OrderUpdated:
-		internalEvent, err = eventschemas.NewOrderUpdated(t)
 	case *whtypes.PaymentCreated:
 		internalEvent, err = eventschemas.NewPaymentReceived(t)
+		pubTopic = paymentEventsTopic
 	case *whtypes.PaymentUpdated:
 		internalEvent, err = eventschemas.NewPaymentUpdated(t)
+		pubTopic = paymentEventsTopic
 	case *whtypes.RefundCreated:
 		internalEvent, err = eventschemas.NewRefundReceived(t)
+		pubTopic = refundEventsTopic
 	case *whtypes.RefundUpdated:
 		internalEvent, err = eventschemas.NewRefundUpdated(t)
+		pubTopic = refundEventsTopic
+	case *whtypes.CustomerCreated:
+		internalEvent, err = eventschemas.NewCustomerReceived(t)
+		pubTopic = customerEventsTopic
+	case *whtypes.CustomerUpdated:
+		internalEvent, err = eventschemas.NewCustomerUpdated(t)
+		pubTopic = customerEventsTopic
+	// these two types are different; since the Square webhook doesn't include the 'order' object, we immediately have to fetch it
+	case *whtypes.OrderCreated:
+		internalEvent = eventschemas.NewSquareGetOrderRequested(t.Data.Object.OrderCreated.OrderId)
+		pubTopic = squareOrderRequestTopic
+	case *whtypes.OrderUpdated:
+		internalEvent = eventschemas.NewSquareGetOrderRequested(t.Data.Object.OrderUpdated.OrderId)
+		pubTopic = squareOrderRequestTopic
 	default:
 		err = errors.New("unsupported webhook event received")
 		slog.ErrorContext(r.Context(), err.Error())
@@ -99,6 +121,7 @@ func WebhookRouter(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(err.Error()))
 		return
 	}
+	slog.DebugContext(r.Context(), fmt.Sprintf("event %T received", webhookEvent), "event", internalEvent)
 	if err != nil {
 		slog.ErrorContext(r.Context(), fmt.Sprintf("error creating internal event: %v", err.Error()))
 		w.WriteHeader(http.StatusBadRequest)
@@ -106,8 +129,7 @@ func WebhookRouter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// publish to payments topic
-
+	// publish to correct topic
 	eventJSON, err := internalEvent.MarshalJSON()
 	if err != nil {
 		slog.ErrorContext(r.Context(), err.Error())
@@ -119,7 +141,7 @@ func WebhookRouter(w http.ResponseWriter, r *http.Request) {
 	timeoutContext, cancel := context.WithTimeout(context.Background(), PUBLISH_TIMEOUT_SEC)
 	defer cancel()
 
-	publishResult := paymentEventsTopic.Publish(timeoutContext, &pubsub.Message{Data: eventJSON})
+	publishResult := pubTopic.Publish(timeoutContext, &pubsub.Message{Data: eventJSON})
 	messageID, err := publishResult.Get(timeoutContext) // this call blocks until complete or timeout occurs
 	if err != nil {
 		slog.ErrorContext(r.Context(), err.Error())

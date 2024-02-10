@@ -1,5 +1,5 @@
 locals {
-  function_group = "customer-controller"
+  function_group = "order-controller"
   function_exclude_list = setunion(
     ["go.sum"],
     fileset("${path.module}", "cmd/**"),         # main harness
@@ -58,13 +58,13 @@ resource "google_storage_bucket_object" "function_source_object" {
   source = data.archive_file.function_source_zip.output_path
 }
 
-resource "google_cloudfunctions2_function" "customer-controller" {
+resource "google_cloudfunctions2_function" "order-controller" {
   name     = "${local.function_group}-${var.fundraiser_id}"
   location = var.gcp_region
 
   build_config {
     runtime     = "go121"
-    entry_point = "CustomerEvent"
+    entry_point = "OrderEvent"
     source {
       storage_source {
         bucket = var.gcs_function_source_bucket
@@ -81,25 +81,24 @@ resource "google_cloudfunctions2_function" "customer-controller" {
       GCP_PROJECT                   = var.gcp_project_id
       EXPIRATION_TIME               = var.expiration_time
       FUNDRAISER_ID                 = var.fundraiser_id
-      SQUARE_CUSTOMER_REQUEST_TOPIC = var.square_customer_request_topic
     }
   }
 
   event_trigger {
     trigger_region = var.gcp_region
     event_type     = "google.cloud.pubsub.topic.v1.messagePublished"
-    pubsub_topic   = "projects/${var.gcp_project_id}/topics/${var.customer_events_topic}"
+    pubsub_topic   = "projects/${var.gcp_project_id}/topics/${var.order_events_topic}"
     retry_policy   = "RETRY_POLICY_RETRY"
   }
 }
 
-resource "google_cloudfunctions2_function" "customer-order-watcher" {
-  name     = "${local.function_group}-${var.fundraiser_id}-order-watcher"
+resource "google_cloudfunctions2_function" "customer-watcher" {
+  name     = "${local.function_group}-${var.fundraiser_id}-customer-watcher"
   location = var.gcp_region
 
   build_config {
     runtime     = "go121"
-    entry_point = "OrderWatcher"
+    entry_point = "CustomerWatcher"
     source {
       storage_source {
         bucket = var.gcs_function_source_bucket
@@ -116,7 +115,6 @@ resource "google_cloudfunctions2_function" "customer-order-watcher" {
       GCP_PROJECT                   = var.gcp_project_id
       EXPIRATION_TIME               = var.expiration_time
       FUNDRAISER_ID                 = var.fundraiser_id
-      SQUARE_CUSTOMER_REQUEST_TOPIC = var.square_customer_request_topic
     }
   }
 
@@ -130,19 +128,19 @@ resource "google_cloudfunctions2_function" "customer-order-watcher" {
     event_filters {
       operator  = "match-path-pattern"
       attribute = "document"
-      value     = "fundraisers/${var.fundraiser_id}/orders/{order}"
+      value     = "fundraisers/${var.fundraiser_id}/customers/{customer}"
     }
     retry_policy   = "RETRY_POLICY_RETRY"
   }
 }
 
-resource "google_cloudfunctions2_function" "square-customer-response" {
-  name     = "${local.function_group}-${var.fundraiser_id}-square-customer-response"
+resource "google_cloudfunctions2_function" "square-order-response" {
+  name     = "${local.function_group}-${var.fundraiser_id}-square-order-response"
   location = var.gcp_region
 
   build_config {
     runtime     = "go121"
-    entry_point = "ProcessSquareCustomerResponse"
+    entry_point = "ProcessSquareOrderResponse"
     source {
       storage_source {
         bucket = var.gcs_function_source_bucket
@@ -159,14 +157,13 @@ resource "google_cloudfunctions2_function" "square-customer-response" {
       GCP_PROJECT                   = var.gcp_project_id
       EXPIRATION_TIME               = var.expiration_time
       FUNDRAISER_ID                 = var.fundraiser_id
-      SQUARE_CUSTOMER_REQUEST_TOPIC = var.square_customer_request_topic
     }
   }
 
   event_trigger {
     trigger_region = var.gcp_region
     event_type     = "google.cloud.pubsub.topic.v1.messagePublished"
-    pubsub_topic   = "projects/${var.gcp_project_id}/topics/${var.square_customer_response_topic}"
+    pubsub_topic   = "projects/${var.gcp_project_id}/topics/${var.square_order_response_topic}"
     retry_policy   = "RETRY_POLICY_RETRY"
   }
 }

@@ -28,21 +28,21 @@ func parseRefundStatus(status string) (RefundStatus, error) {
 	case REFUND_STATUS_FAILED:
 		return REFUND_STATUS_FAILED, nil
 	}
-	return REFUND_STATUS_UNKNOWN, fmt.Errorf("%s is not a valid RefundStatus", status)
+	return REFUND_STATUS_UNKNOWN, fmt.Errorf("%q is not a valid RefundStatus", status)
 }
 
 type Refund struct {
-	Expiration        time.Time       `json:"expiration"`
-	FeeAmount         float64         `json:"feeAmount"`
-	ID                string          `json:"id"`
-	IdempotencyKeys   map[string]bool `json:"idempotencyKeys"`
-	Reason            string          `json:"reason"`
-	RefundAmount      float64         `json:"refundAmount"`
-	SquarePaymentID   string          `json:"squarePaymentID"`
-	SquareOrderID     string          `json:"squareOrderID"`
-	SquareUpdatedTime time.Time       `json:"squareUpdatedTime"`
-	Status            RefundStatus    `json:"status"`
-	Unlinked          bool            `json:"unlinked"`
+	Expiration        time.Time       `json:"expiration" firestore:"expiration"`
+	FeeAmount         float64         `json:"feeAmount" firestore:"feeAmount"`
+	ID                string          `json:"id" firestore:"id"`
+	IdempotencyKeys   map[string]bool `json:"idempotencyKeys" firestore:"idempotencyKeys"`
+	Reason            string          `json:"reason" firestore:"reason"`
+	RefundAmount      float64         `json:"refundAmount" firestore:"refundAmount"`
+	SquarePaymentID   string          `json:"squarePaymentID" firestore:"squarePaymentID"`
+	SquareOrderID     string          `json:"squareOrderID" firestore:"squareOrderID"`
+	SquareUpdatedTime time.Time       `json:"squareUpdatedTime" firestore:"squareUpdatedTime"`
+	Status            RefundStatus    `json:"status" firestore:"status"`
+	Unlinked          bool            `json:"unlinked" firestore:"unlinked"`
 }
 
 func CreateInternalRefundFromSquareRefund(squareRefund models.PaymentRefund) (*Refund, error) {

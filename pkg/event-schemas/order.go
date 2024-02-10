@@ -1,7 +1,6 @@
 package eventschemas
 
 import (
-	cloudevents "github.com/cloudevents/sdk-go/v2"
 	"github.com/kofc7186/fundraiser-manager/pkg/square/types/webhooks"
 	"github.com/kofc7186/fundraiser-manager/pkg/types"
 )
@@ -12,8 +11,8 @@ const (
 )
 
 type BaseOrder struct {
-	Order          *types.Order
-	IdempotencyKey string
+	Order          *types.Order `json:"order"`
+	IdempotencyKey string       `json:"idempotencyKey"`
 }
 
 type OrderReceived struct {
@@ -26,11 +25,13 @@ type OrderUpdated struct {
 	Raw *webhooks.OrderUpdated `json:"raw"`
 }
 
+/*
+
 func NewOrderReceived(squareOrderCreatedEvent *webhooks.OrderCreated) (*cloudevents.Event, error) {
 	event := newEvent(OrderReceivedType)
-	event.SetSubject(squareOrderCreatedEvent.Data.Object.Order.Id)
+	event.SetSubject(squareOrderCreatedEvent.Data.Object.OrderCreated.OrderId)
 
-	p, err := types.CreateInternalOrderFromSquareOrder(squareOrderCreatedEvent.Data.Object.Order)
+	p, err := types.CreateInternalOrderFromSquareOrder(squareOrderCreatedEvent.Data.Object.OrderCreated)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +52,7 @@ func NewOrderReceived(squareOrderCreatedEvent *webhooks.OrderCreated) (*cloudeve
 
 func NewOrderUpdated(squareOrderUpdatedEvent *webhooks.OrderUpdated) (*cloudevents.Event, error) {
 	event := newEvent(OrderUpdatedType)
-	event.SetSubject(squareOrderUpdatedEvent.Data.Object.Order.Id)
+	event.SetSubject(squareOrderUpdatedEvent.Data.Object.OrderUpdated.OrderId)
 
 	p, err := types.CreateInternalOrderFromSquareOrder(squareOrderUpdatedEvent.Data.Object.Order)
 	if err != nil {
@@ -71,3 +72,5 @@ func NewOrderUpdated(squareOrderUpdatedEvent *webhooks.OrderUpdated) (*cloudeven
 	}
 	return event, nil
 }
+
+*/

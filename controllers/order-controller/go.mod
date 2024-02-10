@@ -1,4 +1,4 @@
-module github.com/kofc7186/fundraiser-manager/controllers/customer-controller
+module github.com/kofc7186/fundraiser-manager/controllers/order-controller
 
 go 1.21
 
@@ -6,14 +6,11 @@ replace github.com/kofc7186/fundraiser-manager => ../../
 
 require (
 	cloud.google.com/go/firestore v1.14.0
-	cloud.google.com/go/pubsub v1.33.0
 	github.com/GoogleCloudPlatform/functions-framework-go v1.8.0
 	github.com/cloudevents/sdk-go/v2 v2.15.0
 	github.com/kofc7186/fundraiser-manager v0.0.0-00010101000000-000000000000
 	google.golang.org/grpc v1.60.1
 )
-
-require cloud.google.com/go/iam v1.1.5 // indirect
 
 require (
 	cloud.google.com/go v0.111.0 // indirect
@@ -50,7 +47,7 @@ require (
 	golang.org/x/sys v0.16.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
-	google.golang.org/api v0.155.0
+	google.golang.org/api v0.155.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
 	google.golang.org/genproto v0.0.0-20231212172506-995d672761c0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240102182953-50ed04b92917 // indirect

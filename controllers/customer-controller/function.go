@@ -7,11 +7,16 @@ import (
 	"time"
 
 	"cloud.google.com/go/firestore"
+	"cloud.google.com/go/pubsub"
+	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/GoogleCloudPlatform/functions-framework-go/functions"
 	"github.com/cloudevents/sdk-go/v2/event"
+
+	"github.com/googleapis/google-cloudevents-go/cloud/firestoredata"
 
 	eventschemas "github.com/kofc7186/fundraiser-manager/pkg/event-schemas"
 	"github.com/kofc7186/fundraiser-manager/pkg/logging"
@@ -26,12 +31,25 @@ const PUBLISH_TIMEOUT_SEC = 2 * time.Second
 var firestoreClient *firestore.Client
 var customerDocPath string
 
+var squareCustomerRequestTopic *pubsub.Topic
+var SQUARE_CUSTOMER_REQUEST_TOPIC string
+
 var expirationTime time.Time
 
 func init() {
 	slog.SetDefault(logging.Logger)
 
-	var err error
+	psClient, err := pubsub.NewClient(context.Background(), util.GetEnvOrPanic("GCP_PROJECT"))
+	if err != nil {
+		panic(err)
+	}
+
+	SQUARE_CUSTOMER_REQUEST_TOPIC = util.GetEnvOrPanic("SQUARE_CUSTOMER_REQUEST_TOPIC")
+	squareCustomerRequestTopic = psClient.Topic(SQUARE_CUSTOMER_REQUEST_TOPIC)
+	if ok, err := squareCustomerRequestTopic.Exists(context.Background()); !ok || err != nil {
+		panic(fmt.Sprintf("existence check for %s failed: %v", SQUARE_CUSTOMER_REQUEST_TOPIC, err))
+	}
+
 	firestoreClient, err = firestore.NewClient(context.Background(), util.GetEnvOrPanic("GCP_PROJECT"))
 	if err != nil {
 		panic(err)
@@ -46,6 +64,8 @@ func init() {
 
 	// do this last so we are ensured to have all the required clients established above
 	functions.CloudEvent("CustomerEvent", ProcessCustomerEvent)
+	functions.CloudEvent("OrderWatcher", OrderWatcher)
+	functions.CloudEvent("ProcessSquareCustomerResponse", ProcessCustomerEvent) // Square API responses just get written like inbound webhooks
 }
 
 // ProcessCustomerEvent
@@ -87,7 +107,26 @@ func writeSquareCustomerToFirestore(ctx context.Context, e *event.Event) error {
 		}
 		idempotencyKey = cu.BaseCustomer.IdempotencyKey
 		proposedCustomer = cu.BaseCustomer.Customer
+	case eventschemas.SquareGetCustomerCompletedType:
+		sgcc := &eventschemas.SquareGetCustomerCompleted{}
+		if err := e.DataAs(sgcc); err != nil {
+			return err
+		}
+		idempotencyKey = sgcc.BaseCustomer.IdempotencyKey
+		proposedCustomer = sgcc.BaseCustomer.Customer
 	}
+
+	// make sure to update the map to denote that we've processed this event already
+	//
+	// the boolean here is only to allow Firestore to map back to Go struct; the important
+	// thing is that the key is put into the map
+	proposedCustomer.IdempotencyKeys = make(map[string]bool, 1)
+	if idempotencyKey != "" {
+		proposedCustomer.IdempotencyKeys[idempotencyKey] = true
+	}
+
+	// ensure the firestore expiration timestamp is written in the appropriate field
+	proposedCustomer.Expiration = expirationTime
 
 	docRef := firestoreClient.Doc(fmt.Sprintf("%s/%s", customerDocPath, proposedCustomer.ID))
 	transaction := func(ctx context.Context, t *firestore.Transaction) error {
@@ -127,16 +166,12 @@ func writeSquareCustomerToFirestore(ctx context.Context, e *event.Event) error {
 			return nil
 		}
 
-		// make sure to update the map to denote that we've processed this event already
-		//
-		// the boolean here is only to allow Firestore to map back to Go struct; the important
-		// thing is that the key is put into the map
-		proposedCustomer.IdempotencyKeys[idempotencyKey] = true
+		// copy over idempotency keys from what we've seen before
+		for key, val := range persistedcustomer.IdempotencyKeys {
+			proposedCustomer.IdempotencyKeys[key] = val
+		}
 
-		// ensure the firestore expiration timestamp is written in the appropriate field
-		proposedCustomer.Expiration = expirationTime
-
-		// if we get here, we have a newer proposal for payment so let's write it
+		// if we get here, we have a newer proposal for customer so let's write it
 		return t.Set(docRef, proposedCustomer)
 	}
 
@@ -148,4 +183,50 @@ func writeSquareCustomerToFirestore(ctx context.Context, e *event.Event) error {
 	return nil
 }
 
-// TODO: have a trigger on order create/update to query customer table, and fetch it if we don't find it
+// OrderWatcher is triggered on any create/update/delete events on an Order object
+// It should scan and see if the order has a customer ID that we don't know about
+// if we don't have it, we should fetch and create the event upon getting the value from Square
+func OrderWatcher(ctx context.Context, e event.Event) error {
+	var data firestoredata.DocumentEventData
+	if err := proto.Unmarshal(e.Data(), &data); err != nil {
+		return fmt.Errorf("proto.Unmarshal: %w", err)
+	}
+
+	if data.GetValue() == nil {
+		// the order document was deleted, nothing for us to do
+		return nil
+	}
+
+	// we're here because an order was either just created or updated
+	if squareCustomerID, ok := data.Value.Fields["squareCustomerID"]; ok {
+		squareCustomerIDString := squareCustomerID.GetStringValue()
+		if squareCustomerIDString == "" {
+			// customerID is unset in the order, therefore we can't find a match in Firestore, so just bail
+			return nil
+		}
+		docs := firestoreClient.Collection(customerDocPath).Where("id", "==", squareCustomerIDString).Documents(ctx)
+		defer docs.Stop()
+		if _, err := docs.Next(); err == iterator.Done {
+			// if we're here, we don't have an entry in the customer table for the order we just observed
+			// send a message to egress-square-gateway to fetch the customer object for us
+			getCustomerEvent := eventschemas.NewSquareGetCustomerRequested(squareCustomerIDString)
+			eventJSON, err := getCustomerEvent.MarshalJSON()
+			if err != nil {
+				return err
+			}
+			timeoutContext, cancel := context.WithTimeout(context.Background(), PUBLISH_TIMEOUT_SEC)
+			defer cancel()
+
+			publishResult := squareCustomerRequestTopic.Publish(timeoutContext, &pubsub.Message{Data: eventJSON})
+			messageID, err := publishResult.Get(timeoutContext) // this call blocks until complete or timeout occurs
+			if err != nil {
+				return err
+			}
+			slog.InfoContext(ctx, "published GetCustomerRequest", "messageID", messageID, "customerID", squareCustomerIDString)
+			return nil
+		}
+		// if we're here, the customer object already exists in our collection, so there is nothing for us to do
+	}
+
+	return nil
+}

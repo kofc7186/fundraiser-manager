@@ -59,7 +59,7 @@ resource "google_storage_bucket_object" "function_source_object" {
 }
 
 resource "google_cloudfunctions2_function" "refund-controller" {
-  name     = "${local.function_group}"
+  name     = "${local.function_group}-${var.fundraiser_id}"
   location = var.gcp_region
 
   build_config {

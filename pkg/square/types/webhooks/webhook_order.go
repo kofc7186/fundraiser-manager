@@ -21,7 +21,7 @@ type OrderCreatedEventData struct {
 }
 
 type OrderCreatedEventObject struct {
-	Order models.Order `json:"order"`
+	OrderCreated models.OrderCreated `json:"order_created"`
 }
 
 type OrderUpdated struct {
@@ -36,5 +36,5 @@ type OrderUpdatedEventData struct {
 }
 
 type OrderUpdatedEventObject struct {
-	Order models.Order `json:"order"`
+	OrderUpdated models.OrderUpdated `json:"order_updated"`
 }

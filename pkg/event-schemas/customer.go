@@ -12,8 +12,8 @@ const (
 )
 
 type BaseCustomer struct {
-	Customer       *types.Customer
-	IdempotencyKey string
+	Customer       *types.Customer `json:"customer"`
+	IdempotencyKey string          `json:"idempotencyKey"`
 }
 
 type CustomerReceived struct {

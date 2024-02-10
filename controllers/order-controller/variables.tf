@@ -30,17 +30,12 @@ variable "expiration_time" {
   type        = string
 }
 
-variable "customer_events_topic" {
-  description = "The pubsub topic where internal customer events are published"
+variable "order_events_topic" {
+  description = "The pubsub topic where internal order events are published"
   type        = string
 }
 
-variable "square_customer_request_topic" {
-  description = "The pubsub topic where Square customer requests are published"
-  type        = string
-}
-
-variable "square_customer_response_topic" {
-  description = "The pubsub topic where Square customer responses are published"
+variable "square_order_response_topic" {
+  description = "The pubsub topic where Square order responses are published"
   type        = string
 }

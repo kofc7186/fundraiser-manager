@@ -12,8 +12,8 @@ const (
 )
 
 type BaseRefund struct {
-	Refund         *types.Refund
-	IdempotencyKey string
+	Refund         *types.Refund `json:"refund"`
+	IdempotencyKey string        `json:"idempotencyKey"`
 }
 
 type RefundReceived struct {

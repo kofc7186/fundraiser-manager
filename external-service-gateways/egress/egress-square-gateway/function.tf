@@ -77,7 +77,7 @@ resource "google_storage_bucket_object" "function_source_object" {
 resource "google_cloudfunctions2_function" "egress_square_gateway" {
   for_each = local.apis
 
-  name     = "${local.function_group}-${each.key}"
+  name     = "${local.function_group}-${var.fundraiser_id}-${each.key}"
   location = var.gcp_region
 
   build_config {

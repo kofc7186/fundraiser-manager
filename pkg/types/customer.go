@@ -7,15 +7,15 @@ import (
 )
 
 type Customer struct {
-	EmailAddress      string          `json:"emailAddress"`
-	Expiration        time.Time       `json:"expiration"`
-	ID                string          `json:"id"`
-	IdempotencyKeys   map[string]bool `json:"idempotencyKeys"`
-	FirstName         string          `json:"firstName"`
-	LastName          string          `json:"lastName"`
-	PhoneNumber       string          `json:"phoneNumber"`
-	KnightOfColumbus  bool            `json:"isKnight"`
-	SquareUpdatedTime time.Time       `json:"squareUpdatedTime"`
+	EmailAddress      string          `json:"emailAddress" firestore:"emailAddress"`
+	Expiration        time.Time       `json:"expiration" firestore:"expiration"`
+	ID                string          `json:"id" firestore:"id"`
+	IdempotencyKeys   map[string]bool `json:"idempotencyKeys" firestore:"idempotencyKeys"`
+	FirstName         string          `json:"firstName" firestore:"firstName"`
+	LastName          string          `json:"lastName" firestore:"lastName"`
+	PhoneNumber       string          `json:"phoneNumber" firestore:"phoneNumber"`
+	KnightOfColumbus  bool            `json:"isKnight" firestore:"isKnight"`
+	SquareUpdatedTime time.Time       `json:"squareUpdatedTime" firestore:"squareUpdatedTime"`
 }
 
 func CreateInternalCustomerFromSquareCustomer(squareCustomer models.Customer) (*Customer, error) {
@@ -28,7 +28,7 @@ func CreateInternalCustomerFromSquareCustomer(squareCustomer models.Customer) (*
 	}
 
 	var err error
-	// per https://developer.squareup.com/reference/square/payments-api/webhooks/refund.created
+	// per https://developer.squareup.com/reference/square/payments-api/webhooks/customer.created
 	// this will be an RFC3339 timestamp
 	r.SquareUpdatedTime, err = time.Parse(time.RFC3339, squareCustomer.UpdatedAt)
 	if err != nil {
