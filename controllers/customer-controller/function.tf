@@ -58,13 +58,13 @@ resource "google_storage_bucket_object" "function_source_object" {
   source = data.archive_file.function_source_zip.output_path
 }
 
-resource "google_cloudfunctions2_function" "customer-controller" {
-  name     = "${local.function_group}-${var.fundraiser_id}"
+resource "google_cloudfunctions2_function" "customer-controller-square-webhook" {
+  name     = "${local.function_group}-${var.fundraiser_id}-square-webhook"
   location = var.gcp_region
 
   build_config {
     runtime     = "go121"
-    entry_point = "CustomerEvent"
+    entry_point = "ProcessSquareCustomerWebhookEvent"
     source {
       storage_source {
         bucket = var.gcs_function_source_bucket
@@ -74,13 +74,16 @@ resource "google_cloudfunctions2_function" "customer-controller" {
   }
 
   service_config {
-    available_memory = "128Mi"
-    timeout_seconds  = 60
+    available_memory   = "128Mi"
+    timeout_seconds    = 60
+    min_instance_count = var.min_instance_count
 
     environment_variables = {
       GCP_PROJECT                   = var.gcp_project_id
       EXPIRATION_TIME               = var.expiration_time
       FUNDRAISER_ID                 = var.fundraiser_id
+      CUSTOMER_EVENTS_TOPIC         = var.customer_events_topic
+      SQUARE_CUSTOMER_WEBHOOK_TOPIC = var.square_customer_webhook_topic
       SQUARE_CUSTOMER_REQUEST_TOPIC = var.square_customer_request_topic
     }
   }
@@ -88,12 +91,58 @@ resource "google_cloudfunctions2_function" "customer-controller" {
   event_trigger {
     trigger_region = var.gcp_region
     event_type     = "google.cloud.pubsub.topic.v1.messagePublished"
-    pubsub_topic   = "projects/${var.gcp_project_id}/topics/${var.customer_events_topic}"
+    pubsub_topic   = "projects/${var.gcp_project_id}/topics/${var.square_customer_webhook_topic}"
     retry_policy   = "RETRY_POLICY_RETRY"
   }
 }
 
-resource "google_cloudfunctions2_function" "customer-order-watcher" {
+resource "google_cloudfunctions2_function" "customer-controller-cdc" {
+  name     = "${local.function_group}-${var.fundraiser_id}-cdc"
+  location = var.gcp_region
+
+  build_config {
+    runtime     = "go121"
+    entry_point = "ProcessCDCEvent"
+    source {
+      storage_source {
+        bucket = var.gcs_function_source_bucket
+        object = google_storage_bucket_object.function_source_object.name
+      }
+    }
+  }
+
+  service_config {
+    available_memory   = "128Mi"
+    timeout_seconds    = 60
+    min_instance_count = var.min_instance_count
+
+    environment_variables = {
+      GCP_PROJECT                   = var.gcp_project_id
+      EXPIRATION_TIME               = var.expiration_time
+      FUNDRAISER_ID                 = var.fundraiser_id
+      CUSTOMER_EVENTS_TOPIC         = var.customer_events_topic
+      SQUARE_CUSTOMER_WEBHOOK_TOPIC = var.square_customer_webhook_topic
+      SQUARE_CUSTOMER_REQUEST_TOPIC = var.square_customer_request_topic
+    }
+  }
+
+  event_trigger {
+    trigger_region = var.gcp_region
+    event_type     = "google.cloud.firestore.document.v1.written"
+    event_filters {
+      attribute = "database"
+      value     = "(default)"
+    }
+    event_filters {
+      operator  = "match-path-pattern"
+      attribute = "document"
+      value     = "fundraisers/${var.fundraiser_id}/customers/{customer}"
+    }
+    retry_policy   = "RETRY_POLICY_RETRY"
+  }
+}
+
+resource "google_cloudfunctions2_function" "customer-controller-order-watcher" {
   name     = "${local.function_group}-${var.fundraiser_id}-order-watcher"
   location = var.gcp_region
 
@@ -109,34 +158,67 @@ resource "google_cloudfunctions2_function" "customer-order-watcher" {
   }
 
   service_config {
-    available_memory = "128Mi"
-    timeout_seconds  = 60
+    available_memory   = "128Mi"
+    timeout_seconds    = 60
+    min_instance_count = var.min_instance_count
 
     environment_variables = {
       GCP_PROJECT                   = var.gcp_project_id
       EXPIRATION_TIME               = var.expiration_time
       FUNDRAISER_ID                 = var.fundraiser_id
+      CUSTOMER_EVENTS_TOPIC         = var.customer_events_topic
+      SQUARE_CUSTOMER_WEBHOOK_TOPIC = var.square_customer_webhook_topic
       SQUARE_CUSTOMER_REQUEST_TOPIC = var.square_customer_request_topic
     }
   }
 
   event_trigger {
     trigger_region = var.gcp_region
-    event_type     = "google.cloud.firestore.document.v1.written"
-    event_filters {
-      attribute = "database"
-      value     = "(default)"
-    }
-    event_filters {
-      operator  = "match-path-pattern"
-      attribute = "document"
-      value     = "fundraisers/${var.fundraiser_id}/orders/{order}"
-    }
+    event_type     = "google.cloud.pubsub.topic.v1.messagePublished"
+    pubsub_topic   = "projects/${var.gcp_project_id}/topics/${var.order_events_topic}"
     retry_policy   = "RETRY_POLICY_RETRY"
   }
 }
 
-resource "google_cloudfunctions2_function" "square-customer-response" {
+resource "google_cloudfunctions2_function" "customer-controller-payment-watcher" {
+  name     = "${local.function_group}-${var.fundraiser_id}-payment-watcher"
+  location = var.gcp_region
+
+  build_config {
+    runtime     = "go121"
+    entry_point = "PaymentWatcher"
+    source {
+      storage_source {
+        bucket = var.gcs_function_source_bucket
+        object = google_storage_bucket_object.function_source_object.name
+      }
+    }
+  }
+
+  service_config {
+    available_memory   = "128Mi"
+    timeout_seconds    = 60
+    min_instance_count = var.min_instance_count
+
+    environment_variables = {
+      GCP_PROJECT                   = var.gcp_project_id
+      EXPIRATION_TIME               = var.expiration_time
+      FUNDRAISER_ID                 = var.fundraiser_id
+      CUSTOMER_EVENTS_TOPIC         = var.customer_events_topic
+      SQUARE_CUSTOMER_WEBHOOK_TOPIC = var.square_customer_webhook_topic
+      SQUARE_CUSTOMER_REQUEST_TOPIC = var.square_customer_request_topic
+    }
+  }
+
+  event_trigger {
+    trigger_region = var.gcp_region
+    event_type     = "google.cloud.pubsub.topic.v1.messagePublished"
+    pubsub_topic   = "projects/${var.gcp_project_id}/topics/${var.payment_events_topic}"
+    retry_policy   = "RETRY_POLICY_RETRY"
+  }
+}
+
+resource "google_cloudfunctions2_function" "customer-controller-square-customer-response" {
   name     = "${local.function_group}-${var.fundraiser_id}-square-customer-response"
   location = var.gcp_region
 
@@ -152,13 +234,16 @@ resource "google_cloudfunctions2_function" "square-customer-response" {
   }
 
   service_config {
-    available_memory = "128Mi"
-    timeout_seconds  = 60
+    available_memory   = "128Mi"
+    timeout_seconds    = 60
+    min_instance_count = var.min_instance_count
 
     environment_variables = {
       GCP_PROJECT                   = var.gcp_project_id
       EXPIRATION_TIME               = var.expiration_time
       FUNDRAISER_ID                 = var.fundraiser_id
+      CUSTOMER_EVENTS_TOPIC         = var.customer_events_topic
+      SQUARE_CUSTOMER_WEBHOOK_TOPIC = var.square_customer_webhook_topic
       SQUARE_CUSTOMER_REQUEST_TOPIC = var.square_customer_request_topic
     }
   }

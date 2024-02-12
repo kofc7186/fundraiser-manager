@@ -75,17 +75,18 @@ resource "google_cloudfunctions2_function" "webhook" {
   }
 
   service_config {
-    available_memory = "128Mi"
-    timeout_seconds  = 60
+    available_memory   = "128Mi"
+    timeout_seconds    = 60
+    min_instance_count = var.min_instance_count
 
     environment_variables = {
-      GCP_PROJECT                = var.gcp_project_id
-      EXPIRATION_TIME            = var.expiration_time
-      PAYMENT_EVENTS_TOPIC       = var.payment_events_topic
-      SQUARE_ORDER_REQUEST_TOPIC = var.square_order_request_topic
-      CUSTOMER_EVENTS_TOPIC      = var.customer_events_topic
-      REFUND_EVENTS_TOPIC        = var.refund_events_topic
-      WEBHOOK_URL                = local.webhook_url
+      GCP_PROJECT                   = var.gcp_project_id
+      EXPIRATION_TIME               = var.expiration_time
+      SQUARE_ORDER_REQUEST_TOPIC    = var.square_order_request_topic
+      SQUARE_CUSTOMER_WEBHOOK_TOPIC = var.square_customer_webhook_topic
+      SQUARE_PAYMENT_WEBHOOK_TOPIC  = var.square_payment_webhook_topic
+      SQUARE_REFUND_WEBHOOK_TOPIC   = var.square_refund_webhook_topic
+      WEBHOOK_URL                   = local.webhook_url
     }
 
     secret_environment_variables {

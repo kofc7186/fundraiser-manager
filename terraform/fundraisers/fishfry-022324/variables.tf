@@ -25,3 +25,9 @@ variable "firestore_expiration_field_name" {
   description = "The field in all documents within fundraisers/{fid} which contains a timestamp, after which the document will be deleted"
   type        = string
 }
+
+variable "min_instance_count" {
+  description = "The limit on the minimum number of function instances that may coexist at a given time"
+  type        = number
+  default     = 0
+}

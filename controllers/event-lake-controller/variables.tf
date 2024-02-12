@@ -30,6 +30,12 @@ variable "expiration_time" {
   type        = string
 }
 
+variable "min_instance_count" {
+  description = "The limit on the minimum number of function instances that may coexist at a given time"
+  type        = number
+  default     = 0
+}
+
 variable "topics_to_monitor" {
   description = "The list of topic IDs that the event-lake-controller should subscribe to, in order to record events"
   type        = set(string)

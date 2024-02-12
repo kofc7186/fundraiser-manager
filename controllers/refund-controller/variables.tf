@@ -30,7 +30,18 @@ variable "expiration_time" {
   type        = string
 }
 
+variable "min_instance_count" {
+  description = "The limit on the minimum number of function instances that may coexist at a given time"
+  type        = number
+  default     = 0
+}
+
 variable "refund_events_topic" {
   description = "The pubsub topic where internal refund events are published"
+  type        = string
+}
+
+variable "square_refund_webhook_topic" {
+  description = "The pubsub topic where Square refund webhook events are published"
   type        = string
 }

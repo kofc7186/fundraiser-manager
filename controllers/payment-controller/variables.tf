@@ -30,7 +30,28 @@ variable "expiration_time" {
   type        = string
 }
 
+variable "min_instance_count" {
+  description = "The limit on the minimum number of function instances that may coexist at a given time"
+  type        = number
+  default     = 0
+}
+
 variable "payment_events_topic" {
   description = "The pubsub topic where internal payment events are published"
+  type        = string
+}
+
+variable "square_payment_webhook_topic" {
+  description = "The pubsub topic where Square payment webhook events are published"
+  type        = string
+}
+
+variable "square_payment_request_topic" {
+  description = "The pubsub topic where Square payment requests are published"
+  type        = string
+}
+
+variable "square_payment_response_topic" {
+  description = "The pubsub topic where Square payment responses are published"
   type        = string
 }

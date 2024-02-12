@@ -9,7 +9,6 @@ locals {
     fileset("${path.module}", "**terraform/**"), # terraform files
     fileset("${path.module}", "*source-*.zip")   # other source zips
   )
-  base_function_url = format("https://%s-%s.cloudfunctions.net", var.gcp_region, var.gcp_project_id)
 }
 
 resource "google_project_service" "service" {
@@ -79,8 +78,9 @@ resource "google_cloudfunctions2_function" "event_lake_capture" {
   }
 
   service_config {
-    available_memory = "128Mi"
-    timeout_seconds  = 60
+    available_memory   = "128Mi"
+    timeout_seconds    = 60
+    min_instance_count = var.min_instance_count
 
     environment_variables = {
       GCP_PROJECT     = var.gcp_project_id

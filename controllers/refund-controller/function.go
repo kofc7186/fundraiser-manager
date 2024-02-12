@@ -2,17 +2,21 @@ package refundcontroller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"cloud.google.com/go/firestore"
+	"cloud.google.com/go/pubsub"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/GoogleCloudPlatform/functions-framework-go/functions"
 	"github.com/cloudevents/sdk-go/v2/event"
 
+	"github.com/googleapis/google-cloudevents-go/cloud/firestoredata"
 	eventschemas "github.com/kofc7186/fundraiser-manager/pkg/event-schemas"
 	"github.com/kofc7186/fundraiser-manager/pkg/logging"
 	"github.com/kofc7186/fundraiser-manager/pkg/types"
@@ -26,12 +30,24 @@ const PUBLISH_TIMEOUT_SEC = 2 * time.Second
 var firestoreClient *firestore.Client
 var refundDocPath string
 
+var refundEventsTopic *pubsub.Topic
+
 var expirationTime time.Time
 
 func init() {
 	slog.SetDefault(logging.Logger)
 
-	var err error
+	psClient, err := pubsub.NewClient(context.Background(), util.GetEnvOrPanic("GCP_PROJECT"))
+	if err != nil {
+		panic(err)
+	}
+
+	REFUND_EVENTS_TOPIC := util.GetEnvOrPanic("REFUND_EVENTS_TOPIC")
+	refundEventsTopic = psClient.Topic(REFUND_EVENTS_TOPIC)
+	if ok, err := refundEventsTopic.Exists(context.Background()); !ok || err != nil {
+		panic(fmt.Sprintf("existence check for %s failed: %v", REFUND_EVENTS_TOPIC, err))
+	}
+
 	firestoreClient, err = firestore.NewClient(context.Background(), util.GetEnvOrPanic("GCP_PROJECT"))
 	if err != nil {
 		panic(err)
@@ -45,11 +61,12 @@ func init() {
 	}
 
 	// do this last so we are ensured to have all the required clients established above
-	functions.CloudEvent("RefundEvent", ProcessRefundEvent)
+	functions.CloudEvent("ProcessSquareRefundWebhookEvent", ProcessSquareRefundWebhookEvent)
+	functions.CloudEvent("ProcessCDCEvent", ProcessCDCEvent)
 }
 
-// ProcessRefundEvent
-func ProcessRefundEvent(ctx context.Context, e event.Event) error {
+// ProcessSquareRefundWebhookEvent
+func ProcessSquareRefundWebhookEvent(ctx context.Context, e event.Event) error {
 	// there are two CloudEvents - one for the pubsub message "event", and then the data within
 	var msg eventschemas.MessagePublishedData
 	if err := e.DataAs(&msg); err != nil {
@@ -69,24 +86,29 @@ func writeSquareRefundToFirestore(ctx context.Context, e *event.Event) error {
 	refundCreateRequest := false
 
 	var idempotencyKey string
-	var proposedRefund *types.Refund
+	var proposedRefund types.Refund
 	switch e.Type() {
-	case eventschemas.RefundReceivedType:
+	case eventschemas.RefundCreatedFromSquareType:
 		refundCreateRequest = true
 
-		rr := &eventschemas.RefundReceived{}
+		rr := &eventschemas.RefundCreatedFromSquare{}
 		if err := e.DataAs(rr); err != nil {
 			return err
 		}
 		idempotencyKey = rr.BaseRefund.IdempotencyKey
 		proposedRefund = rr.BaseRefund.Refund
-	case eventschemas.RefundUpdatedType:
-		ru := &eventschemas.RefundUpdated{}
+	case eventschemas.RefundUpdatedFromSquareType:
+		ru := &eventschemas.RefundUpdatedFromSquare{}
 		if err := e.DataAs(ru); err != nil {
 			return err
 		}
 		idempotencyKey = ru.BaseRefund.IdempotencyKey
 		proposedRefund = ru.BaseRefund.Refund
+	}
+
+	if proposedRefund.Unlinked {
+		slog.InfoContext(ctx, "received info about an unlinked refund, squelching", "event", e)
+		return nil
 	}
 
 	// make sure to update the map to denote that we've processed this event already
@@ -151,5 +173,81 @@ func writeSquareRefundToFirestore(ctx context.Context, e *event.Event) error {
 	}
 
 	slog.InfoContext(ctx, fmt.Sprintf("refund %v written at %v", docRef.ID, docRef.Path))
+	return nil
+}
+
+// ProcessCDCEvent generates internal domain events from changes to firestore refunds collection
+func ProcessCDCEvent(ctx context.Context, e event.Event) error {
+	var data firestoredata.DocumentEventData
+	if err := proto.Unmarshal(e.Data(), &data); err != nil {
+		return fmt.Errorf("proto.Unmarshal: %w", err)
+	}
+
+	var internalEvent *event.Event
+	if data.GetValue() == nil {
+		// the refund document was deleted
+		b, err := json.Marshal(util.ParseFirebaseDocument(data.OldValue))
+		if err != nil {
+			return err
+		}
+		refund := &types.Refund{}
+		if err := json.Unmarshal(b, refund); err != nil {
+			return err
+		}
+		internalEvent, err = eventschemas.NewRefundDeleted(refund)
+		if err != nil {
+			return err
+		}
+	} else if data.GetOldValue() == nil {
+		// the payment document was created
+		b, err := json.Marshal(util.ParseFirebaseDocument(data.Value))
+		if err != nil {
+			return err
+		}
+		payment := &types.Refund{}
+		if err := json.Unmarshal(b, payment); err != nil {
+			return err
+		}
+		internalEvent, err = eventschemas.NewRefundCreated(payment)
+		if err != nil {
+			return err
+		}
+	} else {
+		// the payment document was updated
+		refundBytes, err := json.Marshal(util.ParseFirebaseDocument(data.Value))
+		if err != nil {
+			return err
+		}
+		refund := &types.Refund{}
+		if err := json.Unmarshal(refundBytes, refund); err != nil {
+			return err
+		}
+		oldRefundBytes, err := json.Marshal(util.ParseFirebaseDocument(data.OldValue))
+		if err != nil {
+			return err
+		}
+		oldRefund := &types.Refund{}
+		if err := json.Unmarshal(oldRefundBytes, oldRefund); err != nil {
+			return err
+		}
+		internalEvent, err = eventschemas.NewRefundUpdated(oldRefund, refund, data.UpdateMask.FieldPaths)
+		if err != nil {
+			return err
+		}
+	}
+
+	eventJSON, err := internalEvent.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	timeoutContext, cancel := context.WithTimeout(context.Background(), PUBLISH_TIMEOUT_SEC)
+	defer cancel()
+
+	publishResult := refundEventsTopic.Publish(timeoutContext, &pubsub.Message{Data: eventJSON})
+	messageID, err := publishResult.Get(timeoutContext) // this call blocks until complete or timeout occurs
+	if err != nil {
+		return err
+	}
+	slog.InfoContext(ctx, fmt.Sprintf("published %s", internalEvent.Type()), "messageID", messageID, "refundID", internalEvent.Subject())
 	return nil
 }

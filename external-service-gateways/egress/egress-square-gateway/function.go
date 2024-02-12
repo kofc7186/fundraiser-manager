@@ -30,12 +30,6 @@ var customerResponseTopic *pubsub.Topic
 
 var squareClient *api.APIClient
 
-var SQUARE_ACCESS_TOKEN string
-var SQUARE_ENVIRONMENT string
-var SQUARE_PAYMENT_RESPONSE_TOPIC_PATH string
-var SQUARE_ORDER_RESPONSE_TOPIC_PATH string
-var SQUARE_CUSTOMER_RESPONSE_TOPIC_PATH string
-
 func init() {
 	slog.SetDefault(logging.Logger)
 
@@ -44,19 +38,19 @@ func init() {
 		panic(err)
 	}
 
-	SQUARE_PAYMENT_RESPONSE_TOPIC_PATH = util.GetEnvOrPanic("SQUARE_PAYMENT_RESPONSE_TOPIC_PATH")
+	SQUARE_PAYMENT_RESPONSE_TOPIC_PATH := util.GetEnvOrPanic("SQUARE_PAYMENT_RESPONSE_TOPIC_PATH")
 	paymentResponseTopic = psClient.Topic(SQUARE_PAYMENT_RESPONSE_TOPIC_PATH)
 	if ok, err := paymentResponseTopic.Exists(context.Background()); !ok || err != nil {
 		panic(fmt.Sprintf("existence check for %s failed: %v", SQUARE_PAYMENT_RESPONSE_TOPIC_PATH, err))
 	}
 
-	SQUARE_ORDER_RESPONSE_TOPIC_PATH = util.GetEnvOrPanic("SQUARE_ORDER_RESPONSE_TOPIC_PATH")
+	SQUARE_ORDER_RESPONSE_TOPIC_PATH := util.GetEnvOrPanic("SQUARE_ORDER_RESPONSE_TOPIC_PATH")
 	orderResponseTopic = psClient.Topic(SQUARE_ORDER_RESPONSE_TOPIC_PATH)
 	if ok, err := orderResponseTopic.Exists(context.Background()); !ok || err != nil {
 		panic(fmt.Sprintf("existence check for %s failed: %v", SQUARE_ORDER_RESPONSE_TOPIC_PATH, err))
 	}
 
-	SQUARE_CUSTOMER_RESPONSE_TOPIC_PATH = util.GetEnvOrPanic("SQUARE_CUSTOMER_RESPONSE_TOPIC_PATH")
+	SQUARE_CUSTOMER_RESPONSE_TOPIC_PATH := util.GetEnvOrPanic("SQUARE_CUSTOMER_RESPONSE_TOPIC_PATH")
 	customerResponseTopic = psClient.Topic(SQUARE_CUSTOMER_RESPONSE_TOPIC_PATH)
 	if ok, err := customerResponseTopic.Exists(context.Background()); !ok || err != nil {
 		panic(fmt.Sprintf("existence check for %s failed: %v", SQUARE_CUSTOMER_RESPONSE_TOPIC_PATH, err))
@@ -65,7 +59,7 @@ func init() {
 	// initialize Square Client
 	var configuration *api.Configuration
 
-	SQUARE_ENVIRONMENT = util.GetEnvOrPanic("SQUARE_ENVIRONMENT")
+	SQUARE_ENVIRONMENT := util.GetEnvOrPanic("SQUARE_ENVIRONMENT")
 	if SQUARE_ENVIRONMENT == "sandbox" {
 		configuration = api.NewSandboxConfiguration()
 	} else {
@@ -80,8 +74,7 @@ func init() {
 	configuration.HTTPClient = retryClient.StandardClient()
 
 	// configure authentication credentials
-	SQUARE_ACCESS_TOKEN = util.GetEnvOrPanic("SQUARE_ACCESS_TOKEN")
-	configuration.AddDefaultHeader("Authorization", fmt.Sprintf("Bearer %s", SQUARE_ACCESS_TOKEN))
+	configuration.AddDefaultHeader("Authorization", fmt.Sprintf("Bearer %s", util.GetEnvOrPanic("SQUARE_ACCESS_TOKEN")))
 
 	squareClient = api.NewAPIClient(configuration)
 
@@ -107,9 +100,9 @@ func EgressSquarePaymentGateway(ctx context.Context, e event.Event) error {
 
 	paymentID := nestedEvent.Subject()
 
-	payment, _, err := squareClient.PaymentsApi.GetPayment(ctx, paymentID)
+	payment, httpResponse, err := squareClient.PaymentsApi.GetPayment(ctx, paymentID)
 	if err != nil {
-		// TODO: print http response headers if we have an error
+		slog.ErrorContext(ctx, "error getting payment from Square", "paymentID", paymentID, "error", err, "httpResponse", httpResponse)
 		return err
 	}
 
@@ -117,11 +110,10 @@ func EgressSquarePaymentGateway(ctx context.Context, e event.Event) error {
 		return fmt.Errorf("error(s) calling GetPayment: %v", payment.Errors)
 	}
 
-	responseEvent, err := eventschemas.NewSquareGetPaymentCompleted(*payment.Payment)
+	responseEvent, err := eventschemas.NewSquareGetPaymentResponse(nestedEvent.Source(), payment)
 	if err != nil {
 		return err
 	}
-	responseEvent.SetExtension("request_source", nestedEvent.Source())
 
 	respBytes, err := responseEvent.MarshalJSON()
 	if err != nil {
@@ -157,21 +149,20 @@ func EgressSquareOrderGateway(ctx context.Context, e event.Event) error {
 
 	orderID := nestedEvent.Subject()
 
-	order, _, err := squareClient.OrdersApi.RetrieveOrder(ctx, orderID)
+	order, httpResponse, err := squareClient.OrdersApi.RetrieveOrder(ctx, orderID)
 	if err != nil {
-		// TODO: print http response headers if we have an error
+		slog.ErrorContext(ctx, "error getting order from Square", "orderID", orderID, "error", err, "httpResponse", httpResponse)
 		return err
 	}
 
 	if len(order.Errors) != 0 {
-		return fmt.Errorf("error(s) calling RetrieveOrders: %v", order.Errors)
+		return fmt.Errorf("error(s) calling RetrieveOrder: %v", order.Errors)
 	}
 
-	responseEvent, err := eventschemas.NewSquareGetOrderCompleted(*order.Order)
+	responseEvent, err := eventschemas.NewSquareRetrieveOrderResponse(nestedEvent.Source(), order)
 	if err != nil {
 		return err
 	}
-	responseEvent.SetExtension("request_source", nestedEvent.Source())
 
 	respBytes, err := responseEvent.MarshalJSON()
 	if err != nil {
@@ -207,21 +198,20 @@ func EgressSquareCustomerGateway(ctx context.Context, e event.Event) error {
 
 	customerID := nestedEvent.Subject()
 
-	customer, _, err := squareClient.CustomersApi.RetrieveCustomer(ctx, customerID)
+	customer, httpResponse, err := squareClient.CustomersApi.RetrieveCustomer(ctx, customerID)
 	if err != nil {
-		// TODO: print http response headers if we have an error
+		slog.ErrorContext(ctx, "error getting customer from Square", "customerID", customerID, "error", err, "httpResponse", httpResponse)
 		return err
 	}
 
 	if len(customer.Errors) != 0 {
-		return fmt.Errorf("error(s) calling RetrieveCustomers: %v", customer.Errors)
+		return fmt.Errorf("error(s) calling RetrieveCustomer: %v", customer.Errors)
 	}
 
-	responseEvent, err := eventschemas.NewSquareGetCustomerCompleted(*customer.Customer)
+	responseEvent, err := eventschemas.NewSquareRetrieveCustomerResponse(nestedEvent.Source(), customer)
 	if err != nil {
 		return err
 	}
-	responseEvent.SetExtension("request_source", nestedEvent.Source())
 
 	respBytes, err := responseEvent.MarshalJSON()
 	if err != nil {

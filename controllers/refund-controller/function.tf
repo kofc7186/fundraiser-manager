@@ -16,6 +16,7 @@ resource "google_project_service" "service" {
     "run.googleapis.com",
     "eventarc.googleapis.com",
     "storage.googleapis.com",
+    "pubsub.googleapis.com",
   ])
 
   project = var.gcp_project_id
@@ -58,13 +59,13 @@ resource "google_storage_bucket_object" "function_source_object" {
   source = data.archive_file.function_source_zip.output_path
 }
 
-resource "google_cloudfunctions2_function" "refund-controller" {
-  name     = "${local.function_group}-${var.fundraiser_id}"
+resource "google_cloudfunctions2_function" "refund-controller-square-webhook" {
+  name     = "${local.function_group}-${var.fundraiser_id}-square-webhook"
   location = var.gcp_region
 
   build_config {
     runtime     = "go121"
-    entry_point = "RefundEvent"
+    entry_point = "ProcessSquareRefundWebhookEvent"
     source {
       storage_source {
         bucket = var.gcs_function_source_bucket
@@ -74,20 +75,66 @@ resource "google_cloudfunctions2_function" "refund-controller" {
   }
 
   service_config {
-    available_memory = "128Mi"
-    timeout_seconds  = 60
+    available_memory   = "128Mi"
+    timeout_seconds    = 60
+    min_instance_count = var.min_instance_count
 
     environment_variables = {
-      GCP_PROJECT     = var.gcp_project_id
-      EXPIRATION_TIME = var.expiration_time
-      FUNDRAISER_ID   = var.fundraiser_id
+      GCP_PROJECT         = var.gcp_project_id
+      EXPIRATION_TIME     = var.expiration_time
+      FUNDRAISER_ID       = var.fundraiser_id
+      REFUND_EVENTS_TOPIC = var.refund_events_topic
     }
   }
 
   event_trigger {
     trigger_region = var.gcp_region
     event_type     = "google.cloud.pubsub.topic.v1.messagePublished"
-    pubsub_topic   = "projects/${var.gcp_project_id}/topics/${var.refund_events_topic}"
+    pubsub_topic   = "projects/${var.gcp_project_id}/topics/${var.square_refund_webhook_topic}"
+    retry_policy   = "RETRY_POLICY_RETRY"
+  }
+}
+
+resource "google_cloudfunctions2_function" "refund-controller-cdc" {
+  name     = "${local.function_group}-${var.fundraiser_id}-cdc"
+  location = var.gcp_region
+
+  build_config {
+    runtime     = "go121"
+    entry_point = "ProcessCDCEvent"
+    source {
+      storage_source {
+        bucket = var.gcs_function_source_bucket
+        object = google_storage_bucket_object.function_source_object.name
+      }
+    }
+  }
+
+  service_config {
+    available_memory   = "128Mi"
+    timeout_seconds    = 60
+    min_instance_count = var.min_instance_count
+
+    environment_variables = {
+      GCP_PROJECT         = var.gcp_project_id
+      EXPIRATION_TIME     = var.expiration_time
+      FUNDRAISER_ID       = var.fundraiser_id
+      REFUND_EVENTS_TOPIC = var.refund_events_topic
+    }
+  }
+
+  event_trigger {
+    trigger_region = var.gcp_region
+    event_type     = "google.cloud.firestore.document.v1.written"
+    event_filters {
+      attribute = "database"
+      value     = "(default)"
+    }
+    event_filters {
+      operator  = "match-path-pattern"
+      attribute = "document"
+      value     = "fundraisers/${var.fundraiser_id}/refunds/{refund}"
+    }
     retry_policy   = "RETRY_POLICY_RETRY"
   }
 }

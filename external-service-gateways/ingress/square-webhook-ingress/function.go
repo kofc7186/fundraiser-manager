@@ -14,7 +14,7 @@ import (
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	eventschemas "github.com/kofc7186/fundraiser-manager/pkg/event-schemas"
 	"github.com/kofc7186/fundraiser-manager/pkg/logging"
-	whtypes "github.com/kofc7186/fundraiser-manager/pkg/square/types/webhooks"
+	squarewebhooktypes "github.com/kofc7186/fundraiser-manager/pkg/square/types/webhooks"
 	"github.com/kofc7186/fundraiser-manager/pkg/square/webhooks"
 	"github.com/kofc7186/fundraiser-manager/pkg/util"
 
@@ -24,25 +24,21 @@ import (
 const PUBLISH_TIMEOUT_SEC = 2 * time.Second
 
 var squareOrderRequestTopic *pubsub.Topic
-var paymentEventsTopic *pubsub.Topic
-var refundEventsTopic *pubsub.Topic
-var customerEventsTopic *pubsub.Topic
+var squarePaymentWebhookTopic *pubsub.Topic
+var squareRefundWebhookTopic *pubsub.Topic
+var squareCustomerWebhookTopic *pubsub.Topic
 var SQUARE_SIGNATURE_KEY string
 var WEBHOOK_URL string
-var SQUARE_ORDER_REQUEST_TOPIC string
-var PAYMENT_EVENTS_TOPIC string
-var REFUND_EVENTS_TOPIC string
-var CUSTOMER_EVENTS_TOPIC string
 
 func init() {
 	slog.SetDefault(logging.Logger)
 
 	// if we don't have these environment variables set, we should panic ASAP
 	SQUARE_SIGNATURE_KEY = util.GetEnvOrPanic("SQUARE_SIGNATURE_KEY")
-	SQUARE_ORDER_REQUEST_TOPIC = util.GetEnvOrPanic("SQUARE_ORDER_REQUEST_TOPIC")
-	PAYMENT_EVENTS_TOPIC = util.GetEnvOrPanic("PAYMENT_EVENTS_TOPIC")
-	REFUND_EVENTS_TOPIC = util.GetEnvOrPanic("REFUND_EVENTS_TOPIC")
-	CUSTOMER_EVENTS_TOPIC = util.GetEnvOrPanic("CUSTOMER_EVENTS_TOPIC")
+	SQUARE_ORDER_REQUEST_TOPIC := util.GetEnvOrPanic("SQUARE_ORDER_REQUEST_TOPIC")
+	SQUARE_PAYMENT_WEBHOOK_TOPIC := util.GetEnvOrPanic("SQUARE_PAYMENT_WEBHOOK_TOPIC")
+	SQUARE_REFUND_WEBHOOK_TOPIC := util.GetEnvOrPanic("SQUARE_REFUND_WEBHOOK_TOPIC")
+	SQUARE_CUSTOMER_WEBHOOK_TOPIC := util.GetEnvOrPanic("SQUARE_CUSTOMER_WEBHOOK_TOPIC")
 	WEBHOOK_URL = util.GetEnvOrPanic("WEBHOOK_URL")
 
 	psClient, err := pubsub.NewClient(context.Background(), util.GetEnvOrPanic("GCP_PROJECT"))
@@ -55,19 +51,19 @@ func init() {
 		panic(fmt.Sprintf("existence check for %s failed: %v", SQUARE_ORDER_REQUEST_TOPIC, err))
 	}
 
-	paymentEventsTopic = psClient.Topic(PAYMENT_EVENTS_TOPIC)
-	if ok, err := paymentEventsTopic.Exists(context.Background()); !ok || err != nil {
-		panic(fmt.Sprintf("existence check for %s failed: %v", PAYMENT_EVENTS_TOPIC, err))
+	squarePaymentWebhookTopic = psClient.Topic(SQUARE_PAYMENT_WEBHOOK_TOPIC)
+	if ok, err := squarePaymentWebhookTopic.Exists(context.Background()); !ok || err != nil {
+		panic(fmt.Sprintf("existence check for %s failed: %v", SQUARE_PAYMENT_WEBHOOK_TOPIC, err))
 	}
 
-	refundEventsTopic = psClient.Topic(REFUND_EVENTS_TOPIC)
-	if ok, err := refundEventsTopic.Exists(context.Background()); !ok || err != nil {
-		panic(fmt.Sprintf("existence check for %s failed: %v", REFUND_EVENTS_TOPIC, err))
+	squareRefundWebhookTopic = psClient.Topic(SQUARE_REFUND_WEBHOOK_TOPIC)
+	if ok, err := squareRefundWebhookTopic.Exists(context.Background()); !ok || err != nil {
+		panic(fmt.Sprintf("existence check for %s failed: %v", SQUARE_REFUND_WEBHOOK_TOPIC, err))
 	}
 
-	customerEventsTopic = psClient.Topic(CUSTOMER_EVENTS_TOPIC)
-	if ok, err := customerEventsTopic.Exists(context.Background()); !ok || err != nil {
-		panic(fmt.Sprintf("existence check for %s failed: %v", CUSTOMER_EVENTS_TOPIC, err))
+	squareCustomerWebhookTopic = psClient.Topic(SQUARE_CUSTOMER_WEBHOOK_TOPIC)
+	if ok, err := squareCustomerWebhookTopic.Exists(context.Background()); !ok || err != nil {
+		panic(fmt.Sprintf("existence check for %s failed: %v", SQUARE_CUSTOMER_WEBHOOK_TOPIC, err))
 	}
 
 	// do this last so we are ensured to have all the required clients established above
@@ -89,30 +85,32 @@ func WebhookRouter(w http.ResponseWriter, r *http.Request) {
 	var internalEvent *cloudevents.Event
 	var pubTopic *pubsub.Topic
 	switch t := webhookEvent.(type) {
-	case *whtypes.PaymentCreated:
-		internalEvent, err = eventschemas.NewPaymentReceived(t)
-		pubTopic = paymentEventsTopic
-	case *whtypes.PaymentUpdated:
-		internalEvent, err = eventschemas.NewPaymentUpdated(t)
-		pubTopic = paymentEventsTopic
-	case *whtypes.RefundCreated:
-		internalEvent, err = eventschemas.NewRefundReceived(t)
-		pubTopic = refundEventsTopic
-	case *whtypes.RefundUpdated:
-		internalEvent, err = eventschemas.NewRefundUpdated(t)
-		pubTopic = refundEventsTopic
-	case *whtypes.CustomerCreated:
-		internalEvent, err = eventschemas.NewCustomerReceived(t)
-		pubTopic = customerEventsTopic
-	case *whtypes.CustomerUpdated:
-		internalEvent, err = eventschemas.NewCustomerUpdated(t)
-		pubTopic = customerEventsTopic
+	case *squarewebhooktypes.PaymentCreated:
+		internalEvent, err = eventschemas.NewPaymentCreatedFromSquare(t)
+		pubTopic = squarePaymentWebhookTopic
+	case *squarewebhooktypes.PaymentUpdated:
+		internalEvent, err = eventschemas.NewPaymentUpdatedFromSquare(t)
+		pubTopic = squarePaymentWebhookTopic
+	case *squarewebhooktypes.RefundCreated:
+		internalEvent, err = eventschemas.NewRefundCreatedFromSquare(t)
+		pubTopic = squareRefundWebhookTopic
+	case *squarewebhooktypes.RefundUpdated:
+		internalEvent, err = eventschemas.NewRefundUpdatedFromSquare(t)
+		pubTopic = squareRefundWebhookTopic
+	case *squarewebhooktypes.CustomerCreated:
+		internalEvent, err = eventschemas.NewCustomerCreatedFromSquare(t)
+		pubTopic = squareCustomerWebhookTopic
+	case *squarewebhooktypes.CustomerUpdated:
+		internalEvent, err = eventschemas.NewCustomerUpdatedFromSquare(t)
+		pubTopic = squareCustomerWebhookTopic
 	// these two types are different; since the Square webhook doesn't include the 'order' object, we immediately have to fetch it
-	case *whtypes.OrderCreated:
-		internalEvent = eventschemas.NewSquareGetOrderRequested(t.Data.Object.OrderCreated.OrderId)
+	case *squarewebhooktypes.OrderCreated:
+		internalEvent = eventschemas.NewSquareRetrieveOrderRequest(t.Data.Object.OrderCreated.OrderId)
+		internalEvent.SetSource(squarewebhooktypes.SQUARE_WEBHOOK_ORDER_CREATED)
 		pubTopic = squareOrderRequestTopic
-	case *whtypes.OrderUpdated:
-		internalEvent = eventschemas.NewSquareGetOrderRequested(t.Data.Object.OrderUpdated.OrderId)
+	case *squarewebhooktypes.OrderUpdated:
+		internalEvent = eventschemas.NewSquareRetrieveOrderRequest(t.Data.Object.OrderUpdated.OrderId)
+		internalEvent.SetSource(squarewebhooktypes.SQUARE_WEBHOOK_ORDER_UPDATED)
 		pubTopic = squareOrderRequestTopic
 	default:
 		err = errors.New("unsupported webhook event received")

@@ -1,4 +1,4 @@
-resource "google_project_service" "service" {
+resource "google_project_service" "function_service" {
   for_each = toset([
     "run.googleapis.com",
     "eventarc.googleapis.com",
@@ -31,12 +31,13 @@ module "square-webhook-ingress" {
 
   gcs_function_source_bucket = google_storage_bucket.function-source-bucket.name
 
-  expiration_time = var.expiration_time
+  expiration_time    = var.expiration_time
+  min_instance_count = var.min_instance_count
 
-  square_order_request_topic = google_pubsub_topic.topic["${var.fundraiser_id}-square-order-request"].name
-  customer_events_topic      = google_pubsub_topic.topic["${var.fundraiser_id}-customer-events"].name
-  payment_events_topic       = google_pubsub_topic.topic["${var.fundraiser_id}-payment-events"].name
-  refund_events_topic        = google_pubsub_topic.topic["${var.fundraiser_id}-refund-events"].name
+  square_order_request_topic    = google_pubsub_topic.topic["${var.fundraiser_id}-square-order-request"].name
+  square_customer_webhook_topic = google_pubsub_topic.topic["${var.fundraiser_id}-square-customer-webhook"].name
+  square_payment_webhook_topic  = google_pubsub_topic.topic["${var.fundraiser_id}-square-payment-webhook"].name
+  square_refund_webhook_topic   = google_pubsub_topic.topic["${var.fundraiser_id}-square-refund-webhook"].name
 }
 
 module "egress-square-gateway" {
@@ -47,8 +48,9 @@ module "egress-square-gateway" {
 
   gcs_function_source_bucket = google_storage_bucket.function-source-bucket.name
 
-  fundraiser_id   = var.fundraiser_id
-  expiration_time = var.expiration_time
+  fundraiser_id      = var.fundraiser_id
+  expiration_time    = var.expiration_time
+  min_instance_count = var.min_instance_count
 
   square_environment = "production"
 
@@ -68,8 +70,9 @@ module "event-lake-controller" {
 
   gcs_function_source_bucket = google_storage_bucket.function-source-bucket.name
 
-  fundraiser_id   = var.fundraiser_id
-  expiration_time = var.expiration_time
+  fundraiser_id      = var.fundraiser_id
+  expiration_time    = var.expiration_time
+  min_instance_count = var.min_instance_count
 
   topics_to_monitor = local.topic_list
 }
@@ -82,10 +85,14 @@ module "payment-controller" {
 
   gcs_function_source_bucket = google_storage_bucket.function-source-bucket.name
 
-  fundraiser_id   = var.fundraiser_id
-  expiration_time = var.expiration_time
+  fundraiser_id      = var.fundraiser_id
+  expiration_time    = var.expiration_time
+  min_instance_count = var.min_instance_count
 
-  payment_events_topic = google_pubsub_topic.topic["${var.fundraiser_id}-payment-events"].name
+  square_payment_webhook_topic  = google_pubsub_topic.topic["${var.fundraiser_id}-square-payment-webhook"].name
+  payment_events_topic          = google_pubsub_topic.topic["${var.fundraiser_id}-payment-events"].name
+  square_payment_request_topic  = google_pubsub_topic.topic["${var.fundraiser_id}-square-payment-request"].name
+  square_payment_response_topic = google_pubsub_topic.topic["${var.fundraiser_id}-square-payment-response"].name
 }
 
 module "refund-controller" {
@@ -96,10 +103,12 @@ module "refund-controller" {
 
   gcs_function_source_bucket = google_storage_bucket.function-source-bucket.name
 
-  fundraiser_id   = var.fundraiser_id
-  expiration_time = var.expiration_time
+  fundraiser_id      = var.fundraiser_id
+  expiration_time    = var.expiration_time
+  min_instance_count = var.min_instance_count
 
-  refund_events_topic = google_pubsub_topic.topic["${var.fundraiser_id}-refund-events"].name
+  square_refund_webhook_topic = google_pubsub_topic.topic["${var.fundraiser_id}-square-refund-webhook"].name
+  refund_events_topic         = google_pubsub_topic.topic["${var.fundraiser_id}-refund-events"].name
 }
 
 module "customer-controller" {
@@ -110,11 +119,15 @@ module "customer-controller" {
 
   gcs_function_source_bucket = google_storage_bucket.function-source-bucket.name
 
-  fundraiser_id   = var.fundraiser_id
-  expiration_time = var.expiration_time
+  fundraiser_id      = var.fundraiser_id
+  expiration_time    = var.expiration_time
+  min_instance_count = var.min_instance_count
 
-  customer_events_topic = google_pubsub_topic.topic["${var.fundraiser_id}-customer-events"].name
-  square_customer_request_topic = google_pubsub_topic.topic["${var.fundraiser_id}-square-customer-request"].name
+  square_customer_webhook_topic  = google_pubsub_topic.topic["${var.fundraiser_id}-square-customer-webhook"].name
+  customer_events_topic          = google_pubsub_topic.topic["${var.fundraiser_id}-customer-events"].name
+  order_events_topic             = google_pubsub_topic.topic["${var.fundraiser_id}-order-events"].name
+  payment_events_topic           = google_pubsub_topic.topic["${var.fundraiser_id}-payment-events"].name
+  square_customer_request_topic  = google_pubsub_topic.topic["${var.fundraiser_id}-square-customer-request"].name
   square_customer_response_topic = google_pubsub_topic.topic["${var.fundraiser_id}-square-customer-response"].name
 }
 
@@ -126,9 +139,12 @@ module "order-controller" {
 
   gcs_function_source_bucket = google_storage_bucket.function-source-bucket.name
 
-  fundraiser_id   = var.fundraiser_id
-  expiration_time = var.expiration_time
+  fundraiser_id      = var.fundraiser_id
+  expiration_time    = var.expiration_time
+  min_instance_count = var.min_instance_count
 
-  order_events_topic = google_pubsub_topic.topic["${var.fundraiser_id}-order-events"].name
+  customer_events_topic       = google_pubsub_topic.topic["${var.fundraiser_id}-customer-events"].name
+  order_events_topic          = google_pubsub_topic.topic["${var.fundraiser_id}-order-events"].name
+  payment_events_topic        = google_pubsub_topic.topic["${var.fundraiser_id}-payment-events"].name
   square_order_response_topic = google_pubsub_topic.topic["${var.fundraiser_id}-square-order-response"].name
 }

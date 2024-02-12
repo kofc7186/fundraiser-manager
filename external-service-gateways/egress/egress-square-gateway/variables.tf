@@ -30,6 +30,12 @@ variable "expiration_time" {
   type        = string
 }
 
+variable "min_instance_count" {
+  description = "The limit on the minimum number of function instances that may coexist at a given time"
+  type        = number
+  default     = 0
+}
+
 variable "square_environment" {
   description = "The Square environment to use; must be either 'production' or 'sandbox'"
   type        = string

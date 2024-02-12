@@ -92,8 +92,9 @@ resource "google_cloudfunctions2_function" "egress_square_gateway" {
   }
 
   service_config {
-    available_memory = "128Mi"
-    timeout_seconds  = 60
+    available_memory   = "128Mi"
+    timeout_seconds    = 60
+    min_instance_count = var.min_instance_count
 
     environment_variables = {
       GCP_PROJECT        = var.gcp_project_id

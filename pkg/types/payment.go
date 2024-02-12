@@ -58,9 +58,9 @@ type Payment struct {
 	ReceiptURL        string          `json:"receiptURL" firestore:"receiptURL"`
 	RefundAmount      float64         `json:"refundAmount,omitempty" firestore:"refundAmount"`
 	Source            PaymentSource   `json:"source" firestore:"source"`
-	SquareCustomerID  string          `json:"squareCustomerID,omitempty" firestore:"squareCustomerID"`
+	SquareCustomerID  string          `json:"squareCustomerID" firestore:"squareCustomerID"`
 	SquareOrderID     string          `json:"squareOrderID" firestore:"squareOrderID"`
-	SquareRefundIDs   []string        `json:"squareRefundIDs,omitempty" firestore:"squareRefundIDs"`
+	SquareRefundIDs   []string        `json:"squareRefundIDs" firestore:"squareRefundIDs"`
 	SquareUpdatedTime time.Time       `json:"squareUpdatedTime" firestore:"squareUpdatedTime"`
 	Status            PaymentStatus   `json:"status" firestore:"status"`
 	TipAmount         float64         `json:"tipAmount" firestore:"tipAmount"`

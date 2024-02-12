@@ -2,6 +2,7 @@ package customercontroller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -31,8 +32,8 @@ const PUBLISH_TIMEOUT_SEC = 2 * time.Second
 var firestoreClient *firestore.Client
 var customerDocPath string
 
+var customerEventsTopic *pubsub.Topic
 var squareCustomerRequestTopic *pubsub.Topic
-var SQUARE_CUSTOMER_REQUEST_TOPIC string
 
 var expirationTime time.Time
 
@@ -44,7 +45,13 @@ func init() {
 		panic(err)
 	}
 
-	SQUARE_CUSTOMER_REQUEST_TOPIC = util.GetEnvOrPanic("SQUARE_CUSTOMER_REQUEST_TOPIC")
+	CUSTOMER_EVENTS_TOPIC := util.GetEnvOrPanic("CUSTOMER_EVENTS_TOPIC")
+	customerEventsTopic = psClient.Topic(CUSTOMER_EVENTS_TOPIC)
+	if ok, err := customerEventsTopic.Exists(context.Background()); !ok || err != nil {
+		panic(fmt.Sprintf("existence check for %s failed: %v", CUSTOMER_EVENTS_TOPIC, err))
+	}
+
+	SQUARE_CUSTOMER_REQUEST_TOPIC := util.GetEnvOrPanic("SQUARE_CUSTOMER_REQUEST_TOPIC")
 	squareCustomerRequestTopic = psClient.Topic(SQUARE_CUSTOMER_REQUEST_TOPIC)
 	if ok, err := squareCustomerRequestTopic.Exists(context.Background()); !ok || err != nil {
 		panic(fmt.Sprintf("existence check for %s failed: %v", SQUARE_CUSTOMER_REQUEST_TOPIC, err))
@@ -63,13 +70,15 @@ func init() {
 	}
 
 	// do this last so we are ensured to have all the required clients established above
-	functions.CloudEvent("CustomerEvent", ProcessCustomerEvent)
-	functions.CloudEvent("OrderWatcher", OrderWatcher)
-	functions.CloudEvent("ProcessSquareCustomerResponse", ProcessCustomerEvent) // Square API responses just get written like inbound webhooks
+	functions.CloudEvent("ProcessSquareCustomerWebhookEvent", ProcessSquareCustomerWebhookEvent)
+	functions.CloudEvent("ProcessSquareCustomerResponse", ProcessSquareCustomerWebhookEvent) // Square API responses just get written like inbound webhooks
+	functions.CloudEvent("ProcessCDCEvent", ProcessCDCEvent)
+	functions.CloudEvent("OrderWatcher", OrderAndPaymentWatcher)
+	functions.CloudEvent("PaymentWatcher", OrderAndPaymentWatcher)
 }
 
-// ProcessCustomerEvent
-func ProcessCustomerEvent(ctx context.Context, e event.Event) error {
+// ProcessSquareCustomerWebhookEvent
+func ProcessSquareCustomerWebhookEvent(ctx context.Context, e event.Event) error {
 	// there are two CloudEvents - one for the pubsub message "event", and then the data within
 	var msg eventschemas.MessagePublishedData
 	if err := e.DataAs(&msg); err != nil {
@@ -89,31 +98,33 @@ func writeSquareCustomerToFirestore(ctx context.Context, e *event.Event) error {
 	customerCreateRequest := false
 
 	var idempotencyKey string
-	var proposedCustomer *types.Customer
+	var proposedCustomer types.Customer
 	switch e.Type() {
-	case eventschemas.CustomerReceivedType:
+	case eventschemas.CustomerCreatedFromSquareType:
 		customerCreateRequest = true
 
-		cr := &eventschemas.CustomerReceived{}
+		cr := &eventschemas.CustomerCreatedFromSquare{}
 		if err := e.DataAs(cr); err != nil {
 			return err
 		}
 		idempotencyKey = cr.BaseCustomer.IdempotencyKey
 		proposedCustomer = cr.BaseCustomer.Customer
-	case eventschemas.CustomerUpdatedType:
-		cu := &eventschemas.CustomerUpdated{}
+	case eventschemas.CustomerUpdatedFromSquareType:
+		cu := &eventschemas.CustomerUpdatedFromSquare{}
 		if err := e.DataAs(cu); err != nil {
 			return err
 		}
 		idempotencyKey = cu.BaseCustomer.IdempotencyKey
 		proposedCustomer = cu.BaseCustomer.Customer
-	case eventschemas.SquareGetCustomerCompletedType:
-		sgcc := &eventschemas.SquareGetCustomerCompleted{}
+	case eventschemas.SquareRetrieveCustomerResponseType:
+		sgcc := &eventschemas.SquareRetrieveCustomerResponse{}
 		if err := e.DataAs(sgcc); err != nil {
 			return err
 		}
 		idempotencyKey = sgcc.BaseCustomer.IdempotencyKey
 		proposedCustomer = sgcc.BaseCustomer.Customer
+	default:
+		return nil // TODO: is this really what we want to do?
 	}
 
 	// make sure to update the map to denote that we've processed this event already
@@ -148,26 +159,26 @@ func writeSquareCustomerToFirestore(ctx context.Context, e *event.Event) error {
 
 		// since the document already exists and we have an update event, let's make sure
 		// we really should update it
-		persistedcustomer := &types.Customer{}
-		if err := docSnap.DataTo(persistedcustomer); err != nil {
+		persistedCustomer := &types.Customer{}
+		if err := docSnap.DataTo(persistedCustomer); err != nil {
 			return err
 		}
 		// search the map to see if we've observed the idempotency key before
-		if _, ok := persistedcustomer.IdempotencyKeys[idempotencyKey]; ok {
+		if _, ok := persistedCustomer.IdempotencyKeys[idempotencyKey]; ok {
 			// we've already processed this update from square, so ignore it
-			slog.DebugContext(ctx, "skipped duplicate event seen from Square", "idempotencyKey", idempotencyKey)
+			slog.DebugContext(ctx, "skipped duplicate event seen", "idempotencyKey", idempotencyKey, "event", e)
 			return nil
 		}
 
 		// check to see if this square event is out of order
-		if persistedcustomer.SquareUpdatedTime.After(proposedCustomer.SquareUpdatedTime) {
+		if persistedCustomer.SquareUpdatedTime.After(proposedCustomer.SquareUpdatedTime) {
 			// we've already processed a newer update from square, so ignore it
-			slog.DebugContext(ctx, "skipped out of order event seen from Square", "idempotencyKey", idempotencyKey)
+			slog.DebugContext(ctx, "skipped out of order event seen from Square", "idempotencyKey", idempotencyKey, "event", e)
 			return nil
 		}
 
 		// copy over idempotency keys from what we've seen before
-		for key, val := range persistedcustomer.IdempotencyKeys {
+		for key, val := range persistedCustomer.IdempotencyKeys {
 			proposedCustomer.IdempotencyKeys[key] = val
 		}
 
@@ -183,33 +194,141 @@ func writeSquareCustomerToFirestore(ctx context.Context, e *event.Event) error {
 	return nil
 }
 
-// OrderWatcher is triggered on any create/update/delete events on an Order object
-// It should scan and see if the order has a customer ID that we don't know about
-// if we don't have it, we should fetch and create the event upon getting the value from Square
-func OrderWatcher(ctx context.Context, e event.Event) error {
+// ProcessCDCEvent generates internal domain events from changes to firestore customers collection
+func ProcessCDCEvent(ctx context.Context, e event.Event) error {
 	var data firestoredata.DocumentEventData
 	if err := proto.Unmarshal(e.Data(), &data); err != nil {
 		return fmt.Errorf("proto.Unmarshal: %w", err)
 	}
 
+	var internalEvent *event.Event
 	if data.GetValue() == nil {
-		// the order document was deleted, nothing for us to do
+		// the customer document was deleted
+		b, err := json.Marshal(util.ParseFirebaseDocument(data.OldValue))
+		if err != nil {
+			return err
+		}
+		customer := &types.Customer{}
+		if err := json.Unmarshal(b, customer); err != nil {
+			return err
+		}
+		internalEvent, err = eventschemas.NewCustomerDeleted(customer)
+		if err != nil {
+			return err
+		}
+	} else if data.GetOldValue() == nil {
+		// the customer document was created
+		b, err := json.Marshal(util.ParseFirebaseDocument(data.Value))
+		if err != nil {
+			return err
+		}
+		customer := &types.Customer{}
+		if err := json.Unmarshal(b, customer); err != nil {
+			return err
+		}
+		internalEvent, err = eventschemas.NewCustomerCreated(customer)
+		if err != nil {
+			return err
+		}
+	} else {
+		// the customer document was updated
+		customerBytes, err := json.Marshal(util.ParseFirebaseDocument(data.Value))
+		if err != nil {
+			return err
+		}
+		customer := &types.Customer{}
+		if err := json.Unmarshal(customerBytes, customer); err != nil {
+			return err
+		}
+		oldCustomerBytes, err := json.Marshal(util.ParseFirebaseDocument(data.OldValue))
+		if err != nil {
+			return err
+		}
+		oldCustomer := &types.Customer{}
+		if err := json.Unmarshal(oldCustomerBytes, oldCustomer); err != nil {
+			return err
+		}
+		internalEvent, err = eventschemas.NewCustomerUpdated(oldCustomer, customer, data.UpdateMask.FieldPaths)
+		if err != nil {
+			return err
+		}
+	}
+
+	eventJSON, err := internalEvent.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	timeoutContext, cancel := context.WithTimeout(context.Background(), PUBLISH_TIMEOUT_SEC)
+	defer cancel()
+
+	publishResult := customerEventsTopic.Publish(timeoutContext, &pubsub.Message{Data: eventJSON})
+	messageID, err := publishResult.Get(timeoutContext) // this call blocks until complete or timeout occurs
+	if err != nil {
+		return err
+	}
+	slog.InfoContext(ctx, fmt.Sprintf("published %s", internalEvent.Type()), "messageID", messageID, "customerID", internalEvent.Subject())
+	return nil
+}
+
+// OrderAndPaymentWatcher listens to internal order/payment events; it should scan and see if they have a customer ID that we don't know about
+// if we don't have it, we should fetch and create the event upon getting the value from Square
+func OrderAndPaymentWatcher(ctx context.Context, e event.Event) error {
+	// there are two CloudEvents - one for the pubsub message "event", and then the data within
+	var msg eventschemas.MessagePublishedData
+	if err := e.DataAs(&msg); err != nil {
+		slog.Error(err.Error(), "event", e)
+		return err
+	}
+
+	nestedEvent := &event.Event{}
+	if err := nestedEvent.UnmarshalJSON(msg.Message.Data); err != nil {
+		return err
+	}
+
+	var squareCustomerID string
+	switch nestedEvent.Type() {
+	case eventschemas.PaymentCreatedType:
+		pc := &eventschemas.PaymentCreated{}
+		if err := nestedEvent.DataAs(pc); err != nil {
+			return err
+		}
+		squareCustomerID = pc.Payment.SquareCustomerID
+	case eventschemas.PaymentUpdatedType:
+		pu := &eventschemas.PaymentUpdated{}
+		if err := nestedEvent.DataAs(pu); err != nil {
+			return err
+		}
+		squareCustomerID = pu.Payment.SquareCustomerID
+	case eventschemas.OrderCreatedType:
+		oc := &eventschemas.OrderCreated{}
+		if err := nestedEvent.DataAs(oc); err != nil {
+			return err
+		}
+		squareCustomerID = oc.Order.SquareCustomerID
+	case eventschemas.OrderUpdatedType:
+		ou := &eventschemas.OrderUpdated{}
+		if err := nestedEvent.DataAs(ou); err != nil {
+			return err
+		}
+		squareCustomerID = ou.Order.SquareCustomerID
+	default:
+		slog.DebugContext(ctx, fmt.Sprintf("squelching %q event", e.Type()), "event", nestedEvent.String())
 		return nil
 	}
 
-	// we're here because an order was either just created or updated
-	if squareCustomerID, ok := data.Value.Fields["squareCustomerID"]; ok {
-		squareCustomerIDString := squareCustomerID.GetStringValue()
-		if squareCustomerIDString == "" {
-			// customerID is unset in the order, therefore we can't find a match in Firestore, so just bail
-			return nil
-		}
-		docs := firestoreClient.Collection(customerDocPath).Where("id", "==", squareCustomerIDString).Documents(ctx)
-		defer docs.Stop()
-		if _, err := docs.Next(); err == iterator.Done {
+	if squareCustomerID == "" {
+		slog.InfoContext(ctx, "cannot update customer when ID field is blank", "event", nestedEvent.String())
+		return nil
+	}
+
+	customerRecordRef := firestoreClient.Collection(customerDocPath).Where("id", "==", squareCustomerID)
+	return firestoreClient.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		customerIterator := tx.Documents(customerRecordRef)
+		defer customerIterator.Stop()
+		if _, err := customerIterator.Next(); err == iterator.Done {
 			// if we're here, we don't have an entry in the customer table for the order we just observed
-			// send a message to egress-square-gateway to fetch the customer object for us
-			getCustomerEvent := eventschemas.NewSquareGetCustomerRequested(squareCustomerIDString)
+			// send a message to egress-square-gateway to fetch the customer object for us, and the order will update later
+			getCustomerEvent := eventschemas.NewSquareRetrieveCustomerRequest(squareCustomerID)
 			eventJSON, err := getCustomerEvent.MarshalJSON()
 			if err != nil {
 				return err
@@ -222,11 +341,9 @@ func OrderWatcher(ctx context.Context, e event.Event) error {
 			if err != nil {
 				return err
 			}
-			slog.InfoContext(ctx, "published GetCustomerRequest", "messageID", messageID, "customerID", squareCustomerIDString)
-			return nil
+			slog.InfoContext(ctx, "published RetrieveCustomerRequest", "messageID", messageID, "customerID", squareCustomerID)
 		}
 		// if we're here, the customer object already exists in our collection, so there is nothing for us to do
-	}
-
-	return nil
+		return nil
+	})
 }

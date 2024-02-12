@@ -5,15 +5,29 @@ locals {
     "label-events",
     "customer-events",
     "refund-events",
+    "square-payment-webhook",
     "square-payment-request",
     "square-payment-response",
     "square-order-request",
     "square-order-response",
+    "square-customer-webhook",
     "square-customer-request",
     "square-customer-response",
+    "square-refund-webhook",
     ] :
     format("%s-%s", var.fundraiser_id, topic)
   ])
+}
+
+resource "google_project_service" "pubsub_service" {
+  for_each = toset([
+    "pubsub.googleapis.com",
+  ])
+
+  project = var.gcp_project_id
+  service = each.key
+
+  disable_on_destroy = false
 }
 
 resource "google_pubsub_topic" "topic" {

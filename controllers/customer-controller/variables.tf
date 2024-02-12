@@ -30,8 +30,24 @@ variable "expiration_time" {
   type        = string
 }
 
+variable "min_instance_count" {
+  description = "The limit on the minimum number of function instances that may coexist at a given time"
+  type        = number
+  default     = 0
+}
+
 variable "customer_events_topic" {
   description = "The pubsub topic where internal customer events are published"
+  type        = string
+}
+
+variable "order_events_topic" {
+  description = "The pubsub topic where internal order events are published"
+  type        = string
+}
+
+variable "payment_events_topic" {
+  description = "The pubsub topic where internal payment events are published"
   type        = string
 }
 
@@ -42,5 +58,10 @@ variable "square_customer_request_topic" {
 
 variable "square_customer_response_topic" {
   description = "The pubsub topic where Square customer responses are published"
+  type        = string
+}
+
+variable "square_customer_webhook_topic" {
+  description = "The pubsub topic where Square customer webhook events are published"
   type        = string
 }
