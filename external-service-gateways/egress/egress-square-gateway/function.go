@@ -14,15 +14,20 @@ import (
 
 	retryablehttp "github.com/hashicorp/go-retryablehttp"
 
-	eventschemas "github.com/kofc7186/fundraiser-manager/pkg/event-schemas"
+	"github.com/antihax/optional"
+	eventschemas "github.com/kofc7186/fundraiser-manager/pkg/event/schemas"
 	"github.com/kofc7186/fundraiser-manager/pkg/logging"
 	"github.com/kofc7186/fundraiser-manager/pkg/square/api"
+	"github.com/kofc7186/fundraiser-manager/pkg/square/types/models"
 	"github.com/kofc7186/fundraiser-manager/pkg/util"
 
 	_ "github.com/GoogleCloudPlatform/functions-framework-go/funcframework"
 )
 
-const PUBLISH_TIMEOUT_SEC = 2 * time.Second
+const (
+	FUNCTION_NAME       = "egress-square-gateway"
+	PUBLISH_TIMEOUT_SEC = 2 * time.Second
+)
 
 var paymentResponseTopic *pubsub.Topic
 var orderResponseTopic *pubsub.Topic
@@ -31,7 +36,7 @@ var customerResponseTopic *pubsub.Topic
 var squareClient *api.APIClient
 
 func init() {
-	slog.SetDefault(logging.Logger)
+	slog.SetDefault(logging.FunctionLogger(FUNCTION_NAME))
 
 	psClient, err := pubsub.NewClient(context.Background(), util.GetEnvOrPanic("GCP_PROJECT"))
 	if err != nil {
@@ -98,36 +103,67 @@ func EgressSquarePaymentGateway(ctx context.Context, e event.Event) error {
 		return err
 	}
 
-	paymentID := nestedEvent.Subject()
+	var responseEvents []*event.Event
+	switch nestedEvent.Type() {
+	case eventschemas.SquareGetPaymentRequestType:
+		paymentID := nestedEvent.Subject()
 
-	payment, httpResponse, err := squareClient.PaymentsApi.GetPayment(ctx, paymentID)
-	if err != nil {
-		slog.ErrorContext(ctx, "error getting payment from Square", "paymentID", paymentID, "error", err, "httpResponse", httpResponse)
-		return err
+		payment, httpResponse, err := squareClient.PaymentsApi.GetPayment(ctx, paymentID)
+		if err != nil {
+			slog.ErrorContext(ctx, "error getting payment from Square", "paymentID", paymentID, "error", err, "httpResponse", httpResponse)
+			return err
+		}
+
+		if len(payment.Errors) != 0 {
+			return fmt.Errorf("error(s) calling GetPayment: %v", payment.Errors)
+		}
+
+		responseEvent, err := eventschemas.NewSquareGetPaymentResponse(nestedEvent.Source(), payment)
+		if err != nil {
+			return err
+		}
+		responseEvents = append(responseEvents, responseEvent)
+	case eventschemas.SquareListPaymentsRequestType:
+		slpr := &eventschemas.SquareListPaymentsRequest{}
+		if err := nestedEvent.DataAs(slpr); err != nil {
+			return err
+		}
+		payments, httpResponse, err := squareClient.PaymentsApi.ListPayments(ctx, &api.PaymentsApiListPaymentsOpts{
+			BeginTime: optional.NewString(slpr.BeginTime.Format(time.RFC3339)),
+			EndTime:   optional.NewString(slpr.EndTime.Format(time.RFC3339)),
+		})
+		if err != nil {
+			slog.ErrorContext(ctx, "error listing payments from Square", "error", err, "httpResponse", httpResponse)
+			return err
+		}
+
+		if len(payments.Errors) != 0 {
+			return fmt.Errorf("error(s) calling ListPayments: %v", payments.Errors)
+		}
+		for _, payment := range payments.Payments {
+			responseEvent, err := eventschemas.NewSquareGetPaymentResponse(nestedEvent.Source(), models.GetPaymentResponse{Payment: &payment})
+			if err != nil {
+				return err
+			}
+			responseEvents = append(responseEvents, responseEvent)
+		}
 	}
 
-	if len(payment.Errors) != 0 {
-		return fmt.Errorf("error(s) calling GetPayment: %v", payment.Errors)
-	}
+	for _, responseEvent := range responseEvents {
+		respBytes, err := responseEvent.MarshalJSON()
+		if err != nil {
+			return err
+		}
 
-	responseEvent, err := eventschemas.NewSquareGetPaymentResponse(nestedEvent.Source(), payment)
-	if err != nil {
-		return err
-	}
+		timeoutContext, cancel := context.WithTimeout(context.Background(), PUBLISH_TIMEOUT_SEC)
+		defer cancel()
 
-	respBytes, err := responseEvent.MarshalJSON()
-	if err != nil {
-		return err
-	}
-
-	timeoutContext, cancel := context.WithTimeout(context.Background(), PUBLISH_TIMEOUT_SEC)
-	defer cancel()
-
-	publishResult := paymentResponseTopic.Publish(timeoutContext, &pubsub.Message{Data: respBytes})
-	// this call blocks until complete or timeout occurs
-	if _, err := publishResult.Get(timeoutContext); err != nil {
-		slog.ErrorContext(ctx, err.Error())
-		return err
+		publishResult := paymentResponseTopic.Publish(timeoutContext, &pubsub.Message{Data: respBytes})
+		// this call blocks until complete or timeout occurs
+		if _, err := publishResult.Get(timeoutContext); err != nil {
+			slog.ErrorContext(ctx, err.Error())
+			return err
+		}
 	}
 
 	return nil

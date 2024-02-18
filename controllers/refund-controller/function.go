@@ -2,7 +2,6 @@ package refundcontroller
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -17,15 +16,18 @@ import (
 	"github.com/cloudevents/sdk-go/v2/event"
 
 	"github.com/googleapis/google-cloudevents-go/cloud/firestoredata"
-	eventschemas "github.com/kofc7186/fundraiser-manager/pkg/event-schemas"
+	eventschemas "github.com/kofc7186/fundraiser-manager/pkg/event/schemas"
 	"github.com/kofc7186/fundraiser-manager/pkg/logging"
-	"github.com/kofc7186/fundraiser-manager/pkg/types"
+	refundtype "github.com/kofc7186/fundraiser-manager/pkg/types/refund"
 	"github.com/kofc7186/fundraiser-manager/pkg/util"
 
 	_ "github.com/GoogleCloudPlatform/functions-framework-go/funcframework"
 )
 
-const PUBLISH_TIMEOUT_SEC = 2 * time.Second
+const (
+	FUNCTION_NAME       = "refund-controller"
+	PUBLISH_TIMEOUT_SEC = 2 * time.Second
+)
 
 var firestoreClient *firestore.Client
 var refundDocPath string
@@ -35,7 +37,7 @@ var refundEventsTopic *pubsub.Topic
 var expirationTime time.Time
 
 func init() {
-	slog.SetDefault(logging.Logger)
+	slog.SetDefault(logging.FunctionLogger(FUNCTION_NAME))
 
 	psClient, err := pubsub.NewClient(context.Background(), util.GetEnvOrPanic("GCP_PROJECT"))
 	if err != nil {
@@ -84,9 +86,10 @@ func ProcessSquareRefundWebhookEvent(ctx context.Context, e event.Event) error {
 
 func writeSquareRefundToFirestore(ctx context.Context, e *event.Event) error {
 	refundCreateRequest := false
+	attemptedWrite := false
 
 	var idempotencyKey string
-	var proposedRefund types.Refund
+	var proposedRefund *refundtype.Refund
 	switch e.Type() {
 	case eventschemas.RefundCreatedFromSquareType:
 		refundCreateRequest = true
@@ -104,6 +107,9 @@ func writeSquareRefundToFirestore(ctx context.Context, e *event.Event) error {
 		}
 		idempotencyKey = ru.BaseRefund.IdempotencyKey
 		proposedRefund = ru.BaseRefund.Refund
+	default:
+		// TODO: slog
+		return nil
 	}
 
 	if proposedRefund.Unlinked {
@@ -116,7 +122,9 @@ func writeSquareRefundToFirestore(ctx context.Context, e *event.Event) error {
 	// the boolean here is only to allow Firestore to map back to Go struct; the important
 	// thing is that the key is put into the map
 	proposedRefund.IdempotencyKeys = make(map[string]bool, 1)
-	proposedRefund.IdempotencyKeys[idempotencyKey] = true
+	if idempotencyKey != "" {
+		proposedRefund.IdempotencyKeys[idempotencyKey] = true
+	}
 
 	// ensure the firestore expiration timestamp is written in the appropriate field
 	proposedRefund.Expiration = expirationTime
@@ -127,6 +135,7 @@ func writeSquareRefundToFirestore(ctx context.Context, e *event.Event) error {
 		if err != nil {
 			if status.Code(err) == codes.NotFound {
 				// document doesn't yet exist, so just write it
+				attemptedWrite = true
 				return t.Set(docRef, proposedRefund)
 			}
 			// document exists but there was some error, bail
@@ -141,7 +150,7 @@ func writeSquareRefundToFirestore(ctx context.Context, e *event.Event) error {
 
 		// since the document already exists and we have an update event, let's make sure
 		// we really should update it
-		persistedRefund := &types.Refund{}
+		persistedRefund := &refundtype.Refund{}
 		if err := docSnap.DataTo(persistedRefund); err != nil {
 			return err
 		}
@@ -165,6 +174,7 @@ func writeSquareRefundToFirestore(ctx context.Context, e *event.Event) error {
 		}
 
 		// if we get here, we have a newer proposal for payment so let's write it
+		attemptedWrite = true
 		return t.Set(docRef, proposedRefund)
 	}
 
@@ -172,7 +182,10 @@ func writeSquareRefundToFirestore(ctx context.Context, e *event.Event) error {
 		return err
 	}
 
-	slog.InfoContext(ctx, fmt.Sprintf("refund %v written at %v", docRef.ID, docRef.Path))
+	// if we got here and attemptedWrite is true, then we wrote the document successfully
+	if attemptedWrite {
+		slog.InfoContext(ctx, fmt.Sprintf("refund %v written at %v", docRef.ID, docRef.Path))
+	}
 	return nil
 }
 
@@ -186,12 +199,9 @@ func ProcessCDCEvent(ctx context.Context, e event.Event) error {
 	var internalEvent *event.Event
 	if data.GetValue() == nil {
 		// the refund document was deleted
-		b, err := json.Marshal(util.ParseFirebaseDocument(data.OldValue))
+		refund := &refundtype.Refund{}
+		err := util.ParseFirebaseDocument(data.OldValue, refund)
 		if err != nil {
-			return err
-		}
-		refund := &types.Refund{}
-		if err := json.Unmarshal(b, refund); err != nil {
 			return err
 		}
 		internalEvent, err = eventschemas.NewRefundDeleted(refund)
@@ -200,34 +210,24 @@ func ProcessCDCEvent(ctx context.Context, e event.Event) error {
 		}
 	} else if data.GetOldValue() == nil {
 		// the payment document was created
-		b, err := json.Marshal(util.ParseFirebaseDocument(data.Value))
+		refund := &refundtype.Refund{}
+		err := util.ParseFirebaseDocument(data.Value, refund)
 		if err != nil {
 			return err
 		}
-		payment := &types.Refund{}
-		if err := json.Unmarshal(b, payment); err != nil {
-			return err
-		}
-		internalEvent, err = eventschemas.NewRefundCreated(payment)
+		internalEvent, err = eventschemas.NewRefundCreated(refund)
 		if err != nil {
 			return err
 		}
 	} else {
 		// the payment document was updated
-		refundBytes, err := json.Marshal(util.ParseFirebaseDocument(data.Value))
+		refund := &refundtype.Refund{}
+		err := util.ParseFirebaseDocument(data.Value, refund)
 		if err != nil {
 			return err
 		}
-		refund := &types.Refund{}
-		if err := json.Unmarshal(refundBytes, refund); err != nil {
-			return err
-		}
-		oldRefundBytes, err := json.Marshal(util.ParseFirebaseDocument(data.OldValue))
-		if err != nil {
-			return err
-		}
-		oldRefund := &types.Refund{}
-		if err := json.Unmarshal(oldRefundBytes, oldRefund); err != nil {
+		oldRefund := &refundtype.Refund{}
+		if err = util.ParseFirebaseDocument(data.OldValue, oldRefund); err != nil {
 			return err
 		}
 		internalEvent, err = eventschemas.NewRefundUpdated(oldRefund, refund, data.UpdateMask.FieldPaths)

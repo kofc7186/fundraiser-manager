@@ -93,6 +93,11 @@ module "payment-controller" {
   payment_events_topic          = google_pubsub_topic.topic["${var.fundraiser_id}-payment-events"].name
   square_payment_request_topic  = google_pubsub_topic.topic["${var.fundraiser_id}-square-payment-request"].name
   square_payment_response_topic = google_pubsub_topic.topic["${var.fundraiser_id}-square-payment-response"].name
+
+  pull_payments_enabled    = var.pull_payments_enabled
+  pull_payments_schedule   = var.pull_payments_schedule
+  pull_payments_begin_time = var.pull_payments_begin_time
+  pull_payments_end_time   = var.pull_payments_end_time
 }
 
 module "refund-controller" {
@@ -146,5 +151,6 @@ module "order-controller" {
   customer_events_topic       = google_pubsub_topic.topic["${var.fundraiser_id}-customer-events"].name
   order_events_topic          = google_pubsub_topic.topic["${var.fundraiser_id}-order-events"].name
   payment_events_topic        = google_pubsub_topic.topic["${var.fundraiser_id}-payment-events"].name
+  square_order_request_topic  = google_pubsub_topic.topic["${var.fundraiser_id}-square-order-request"].name
   square_order_response_topic = google_pubsub_topic.topic["${var.fundraiser_id}-square-order-response"].name
 }

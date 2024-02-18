@@ -2,7 +2,6 @@ package ordercontroller
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -18,27 +17,33 @@ import (
 	"github.com/cloudevents/sdk-go/v2/event"
 
 	"github.com/googleapis/google-cloudevents-go/cloud/firestoredata"
-	eventschemas "github.com/kofc7186/fundraiser-manager/pkg/event-schemas"
+	eventschemas "github.com/kofc7186/fundraiser-manager/pkg/event/schemas"
 	"github.com/kofc7186/fundraiser-manager/pkg/logging"
-	squarewebhooktypes "github.com/kofc7186/fundraiser-manager/pkg/square/types/webhooks"
-	"github.com/kofc7186/fundraiser-manager/pkg/types"
+	squarewebhooktype "github.com/kofc7186/fundraiser-manager/pkg/square/types/webhooks"
+	customerType "github.com/kofc7186/fundraiser-manager/pkg/types/customer"
+	orderType "github.com/kofc7186/fundraiser-manager/pkg/types/order"
+	paymentType "github.com/kofc7186/fundraiser-manager/pkg/types/payment"
 	"github.com/kofc7186/fundraiser-manager/pkg/util"
 
 	_ "github.com/GoogleCloudPlatform/functions-framework-go/funcframework"
 )
 
-const PUBLISH_TIMEOUT_SEC = 2 * time.Second
+const (
+	FUNCTION_NAME       = "order-controller"
+	PUBLISH_TIMEOUT_SEC = 2 * time.Second
+)
 
 var firestoreClient *firestore.Client
 var fundraiserDocPath string
 var orderDocPath string
 
 var orderEventsTopic *pubsub.Topic
+var squareOrderRequestTopic *pubsub.Topic
 
 var expirationTime time.Time
 
 func init() {
-	slog.SetDefault(logging.Logger)
+	slog.SetDefault(logging.FunctionLogger(FUNCTION_NAME))
 
 	psClient, err := pubsub.NewClient(context.Background(), util.GetEnvOrPanic("GCP_PROJECT"))
 	if err != nil {
@@ -54,6 +59,12 @@ func init() {
 	orderEventsTopic = psClient.Topic(ORDER_EVENTS_TOPIC)
 	if ok, err := orderEventsTopic.Exists(context.Background()); !ok || err != nil {
 		panic(fmt.Sprintf("existence check for %s failed: %v", ORDER_EVENTS_TOPIC, err))
+	}
+
+	SQUARE_ORDER_REQUEST_TOPIC := util.GetEnvOrPanic("SQUARE_ORDER_REQUEST_TOPIC")
+	squareOrderRequestTopic = psClient.Topic(SQUARE_ORDER_REQUEST_TOPIC)
+	if ok, err := squareOrderRequestTopic.Exists(context.Background()); !ok || err != nil {
+		panic(fmt.Sprintf("existence check for %s failed: %v", SQUARE_ORDER_REQUEST_TOPIC, err))
 	}
 
 	fundraiserDocPath = fmt.Sprintf("fundraisers/%s", util.GetEnvOrPanic("FUNDRAISER_ID"))
@@ -88,15 +99,20 @@ func ProcessSquareRetrieveOrderResponse(ctx context.Context, e event.Event) erro
 	return writeSquareOrderToFirestore(ctx, nestedEvent)
 }
 
+type FundraiserDoc struct {
+	OrderNumber uint16 `json:"orderNumber" firestore:"orderNumber"`
+}
+
 func writeSquareOrderToFirestore(ctx context.Context, e *event.Event) error {
 	orderCreateRequest := false
+	attemptedWrite := false
 
-	if e.Source() == squarewebhooktypes.SQUARE_WEBHOOK_ORDER_CREATED {
+	if e.Source() == squarewebhooktype.SQUARE_WEBHOOK_ORDER_CREATED {
 		orderCreateRequest = true
 	}
 
 	var idempotencyKey string
-	var proposedOrder types.Order
+	var proposedOrder *orderType.Order
 	switch e.Type() {
 	case eventschemas.SquareRetrieveOrderResponseType:
 		sgoc := &eventschemas.SquareRetrieveOrderResponse{}
@@ -105,6 +121,9 @@ func writeSquareOrderToFirestore(ctx context.Context, e *event.Event) error {
 		}
 		idempotencyKey = sgoc.BaseOrder.IdempotencyKey
 		proposedOrder = sgoc.BaseOrder.Order
+	default:
+		// TODO: slog
+		return nil
 	}
 
 	// make sure to update the map to denote that we've processed this event already
@@ -131,28 +150,22 @@ func writeSquareOrderToFirestore(ctx context.Context, e *event.Event) error {
 				if err != nil {
 					if status.Code(err) == codes.NotFound {
 						// this is extremely unlikely, but create it if it doesn't exist
-						if err := tx.Update(fundraiserDocRef, []firestore.Update{{Path: "orderNumber", Value: orderNumber}}); err != nil {
+						if err := tx.Set(fundraiserDocRef, FundraiserDoc{OrderNumber: orderNumber}); err != nil {
 							return err
 						}
 					}
 				} else {
-					orderNumberInterface, err := fundraiserDocSnap.DataAt("orderNumber")
-					if err != nil {
-						if status.Code(err) == codes.NotFound {
-							if err := tx.Update(fundraiserDocRef, []firestore.Update{{Path: "orderNumber", Value: orderNumber}}); err != nil {
-								return err
-							}
-						} else {
-							return err
-						}
-					} else {
-						if err := tx.Update(fundraiserDocRef, []firestore.Update{{Path: "orderNumber", Value: firestore.Increment(1)}}); err != nil {
-							return err
-						}
+					fundraiserDoc := &FundraiserDoc{}
+					if err := fundraiserDocSnap.DataTo(&fundraiserDoc); err != nil {
+						return err
 					}
-					orderNumber = orderNumberInterface.(uint16) + 1
+					if err := tx.Update(fundraiserDocRef, []firestore.Update{{Path: "orderNumber", Value: firestore.Increment(1)}}); err != nil {
+						return err
+					}
+					orderNumber = fundraiserDoc.OrderNumber + 1
 				}
 				proposedOrder.Number = orderNumber
+				attemptedWrite = true
 				return tx.Set(docRef, proposedOrder)
 			}
 			// document exists but there was some error, bail
@@ -167,7 +180,7 @@ func writeSquareOrderToFirestore(ctx context.Context, e *event.Event) error {
 
 		// since the document already exists and we have an update event, let's make sure
 		// we really should update it
-		persistedOrder := &types.Order{}
+		persistedOrder := &orderType.Order{}
 		if err := docSnap.DataTo(persistedOrder); err != nil {
 			return err
 		}
@@ -191,6 +204,7 @@ func writeSquareOrderToFirestore(ctx context.Context, e *event.Event) error {
 		}
 
 		// if we get here, we have a newer proposal for customer so let's write it
+		attemptedWrite = true
 		return tx.Set(docRef, proposedOrder)
 	}
 
@@ -198,7 +212,10 @@ func writeSquareOrderToFirestore(ctx context.Context, e *event.Event) error {
 		return err
 	}
 
-	slog.InfoContext(ctx, fmt.Sprintf("order %v written at %v", docRef.ID, docRef.Path))
+	// if we got here and attemptedWrite is true, then we wrote the document successfully
+	if attemptedWrite {
+		slog.InfoContext(ctx, fmt.Sprintf("order %v written at %v", docRef.ID, docRef.Path))
+	}
 	return nil
 }
 
@@ -212,12 +229,9 @@ func ProcessCDCEvent(ctx context.Context, e event.Event) error {
 	var internalEvent *event.Event
 	if data.GetValue() == nil {
 		// the order document was deleted
-		b, err := json.Marshal(util.ParseFirebaseDocument(data.OldValue))
+		order := &orderType.Order{}
+		err := util.ParseFirebaseDocument(data.OldValue, order)
 		if err != nil {
-			return err
-		}
-		order := &types.Order{}
-		if err := json.Unmarshal(b, order); err != nil {
 			return err
 		}
 		internalEvent, err = eventschemas.NewOrderDeleted(order)
@@ -226,12 +240,9 @@ func ProcessCDCEvent(ctx context.Context, e event.Event) error {
 		}
 	} else if data.GetOldValue() == nil {
 		// the order document was created
-		b, err := json.Marshal(util.ParseFirebaseDocument(data.Value))
+		order := &orderType.Order{}
+		err := util.ParseFirebaseDocument(data.Value, order)
 		if err != nil {
-			return err
-		}
-		order := &types.Order{}
-		if err := json.Unmarshal(b, order); err != nil {
 			return err
 		}
 		internalEvent, err = eventschemas.NewOrderCreated(order)
@@ -240,20 +251,13 @@ func ProcessCDCEvent(ctx context.Context, e event.Event) error {
 		}
 	} else {
 		// the order document was updated
-		orderBytes, err := json.Marshal(util.ParseFirebaseDocument(data.Value))
+		order := &orderType.Order{}
+		err := util.ParseFirebaseDocument(data.Value, order)
 		if err != nil {
 			return err
 		}
-		order := &types.Order{}
-		if err := json.Unmarshal(orderBytes, order); err != nil {
-			return err
-		}
-		oldOrderBytes, err := json.Marshal(util.ParseFirebaseDocument(data.OldValue))
-		if err != nil {
-			return err
-		}
-		oldOrder := &types.Order{}
-		if err := json.Unmarshal(oldOrderBytes, oldOrder); err != nil {
+		oldOrder := &orderType.Order{}
+		if err = util.ParseFirebaseDocument(data.OldValue, oldOrder); err != nil {
 			return err
 		}
 		internalEvent, err = eventschemas.NewOrderUpdated(oldOrder, order, data.UpdateMask.FieldPaths)
@@ -293,7 +297,7 @@ func PaymentWatcher(ctx context.Context, e event.Event) error {
 	}
 
 	var idempotencyKey string
-	var paymentToProcess types.Payment
+	var paymentToProcess *paymentType.Payment
 	var fieldsInPaymentUpdate []string
 
 	switch nestedEvent.Type() {
@@ -323,9 +327,31 @@ func PaymentWatcher(ctx context.Context, e event.Event) error {
 		if err != nil {
 			return err
 		}
+		if len(docSnaps) == 0 {
+			// there is no order object for the payment we just saw, we should request it via Square API
+			if paymentToProcess.SquareOrderID == "" {
+				slog.InfoContext(ctx, "no order ID for payment event")
+				return nil
+			}
+			getOrderEvent := eventschemas.NewSquareRetrieveOrderRequest(paymentToProcess.SquareOrderID)
+			eventJSON, err := getOrderEvent.MarshalJSON()
+			if err != nil {
+				return err
+			}
+			timeoutContext, cancel := context.WithTimeout(context.Background(), PUBLISH_TIMEOUT_SEC)
+			defer cancel()
+
+			publishResult := squareOrderRequestTopic.Publish(timeoutContext, &pubsub.Message{Data: eventJSON})
+			messageID, err := publishResult.Get(timeoutContext) // this call blocks until complete or timeout occurs
+			if err != nil {
+				return err
+			}
+			slog.InfoContext(ctx, "published SquareRetrieveOrderRequest during payment processing", "messageID", messageID, "orderID", paymentToProcess.SquareOrderID)
+			return nil
+		}
 		for _, docSnap := range docSnaps {
 			// if we're here, we have updated payment information for a valid order
-			order := types.Order{}
+			order := orderType.Order{}
 			if err := docSnap.DataTo(&order); err != nil {
 				slog.ErrorContext(ctx, err.Error())
 				continue
@@ -413,7 +439,7 @@ func CustomerWatcher(ctx context.Context, e event.Event) error {
 	}
 
 	var idempotencyKey string
-	var customerToProcess types.Customer
+	var customerToProcess *customerType.Customer
 	var fieldsInCustomerUpdate []string
 
 	switch nestedEvent.Type() {
@@ -445,7 +471,7 @@ func CustomerWatcher(ctx context.Context, e event.Event) error {
 		}
 		for _, orderSnap := range orderSnaps {
 			// if we're here, we have updated customer information for a valid order
-			order := types.Order{}
+			order := orderType.Order{}
 			if err := orderSnap.DataTo(&order); err != nil {
 				slog.ErrorContext(ctx, err.Error())
 				continue

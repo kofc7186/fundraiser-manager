@@ -1,10 +1,10 @@
-package eventschemas
+package schemas
 
 import (
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	"github.com/google/uuid"
 	"github.com/kofc7186/fundraiser-manager/pkg/square/types/webhooks"
-	"github.com/kofc7186/fundraiser-manager/pkg/types"
+	"github.com/kofc7186/fundraiser-manager/pkg/types/refund"
 )
 
 const (
@@ -16,8 +16,8 @@ const (
 )
 
 type BaseRefund struct {
-	Refund         types.Refund `json:"refund"`
-	IdempotencyKey string       `json:"idempotencyKey"`
+	Refund         *refund.Refund `json:"refund"`
+	IdempotencyKey string         `json:"idempotencyKey"`
 }
 
 type RefundCreatedFromSquare struct {
@@ -34,14 +34,14 @@ func NewRefundCreatedFromSquare(squareRefundCreatedEvent *webhooks.RefundCreated
 	event := newEvent(RefundCreatedFromSquareType)
 	event.SetSubject(squareRefundCreatedEvent.Data.Object.Refund.Id)
 
-	r, err := types.CreateInternalRefundFromSquareRefund(squareRefundCreatedEvent.Data.Object.Refund)
+	r, err := refund.CreateInternalRefundFromSquareRefund(squareRefundCreatedEvent.Data.Object.Refund)
 	if err != nil {
 		return nil, err
 	}
 
 	rc := &RefundCreatedFromSquare{
 		BaseRefund: BaseRefund{
-			Refund:         *r,
+			Refund:         r,
 			IdempotencyKey: squareRefundCreatedEvent.EventID,
 		},
 		Raw: squareRefundCreatedEvent,
@@ -57,14 +57,14 @@ func NewRefundUpdatedFromSquare(squareRefundUpdatedEvent *webhooks.RefundUpdated
 	event := newEvent(RefundUpdatedFromSquareType)
 	event.SetSubject(squareRefundUpdatedEvent.Data.Object.Refund.Id)
 
-	r, err := types.CreateInternalRefundFromSquareRefund(squareRefundUpdatedEvent.Data.Object.Refund)
+	r, err := refund.CreateInternalRefundFromSquareRefund(squareRefundUpdatedEvent.Data.Object.Refund)
 	if err != nil {
 		return nil, err
 	}
 
 	ru := &RefundUpdatedFromSquare{
 		BaseRefund: BaseRefund{
-			Refund:         *r,
+			Refund:         r,
 			IdempotencyKey: squareRefundUpdatedEvent.EventID,
 		},
 		Raw: squareRefundUpdatedEvent,
@@ -80,13 +80,13 @@ type RefundCreated struct {
 	BaseRefund
 }
 
-func NewRefundCreated(refund *types.Refund) (*cloudevents.Event, error) {
+func NewRefundCreated(refund *refund.Refund) (*cloudevents.Event, error) {
 	event := newEvent(RefundCreatedType)
 	event.SetSubject(refund.ID)
 
 	rc := &RefundCreated{
 		BaseRefund: BaseRefund{
-			Refund:         *refund,
+			Refund:         refund,
 			IdempotencyKey: uuid.Must(uuid.NewV7()).String(),
 		},
 	}
@@ -99,20 +99,20 @@ func NewRefundCreated(refund *types.Refund) (*cloudevents.Event, error) {
 
 type RefundUpdated struct {
 	BaseRefund
-	OldRefund     types.Refund `json:"oldRefund"`
-	UpdatedFields []string     `json:"updatedFields"`
+	OldRefund     *refund.Refund `json:"oldRefund"`
+	UpdatedFields []string       `json:"updatedFields"`
 }
 
-func NewRefundUpdated(oldRefund, newRefund *types.Refund, fieldMask []string) (*cloudevents.Event, error) {
+func NewRefundUpdated(oldRefund, newRefund *refund.Refund, fieldMask []string) (*cloudevents.Event, error) {
 	event := newEvent(RefundUpdatedType)
 	event.SetSubject(newRefund.ID)
 
 	ru := &RefundUpdated{
 		BaseRefund: BaseRefund{
-			Refund:         *newRefund,
+			Refund:         newRefund,
 			IdempotencyKey: uuid.Must(uuid.NewV7()).String(),
 		},
-		OldRefund:     *oldRefund,
+		OldRefund:     oldRefund,
 		UpdatedFields: fieldMask,
 	}
 
@@ -126,13 +126,13 @@ type RefundDeleted struct {
 	BaseRefund
 }
 
-func NewRefundDeleted(refund *types.Refund) (*cloudevents.Event, error) {
+func NewRefundDeleted(refund *refund.Refund) (*cloudevents.Event, error) {
 	event := newEvent(RefundDeletedType)
 	event.SetSubject(refund.ID)
 
 	rd := &RefundDeleted{
 		BaseRefund: BaseRefund{
-			Refund:         *refund,
+			Refund:         refund,
 			IdempotencyKey: uuid.Must(uuid.NewV7()).String(),
 		},
 	}

@@ -12,7 +12,7 @@ import (
 
 	"cloud.google.com/go/pubsub"
 	cloudevents "github.com/cloudevents/sdk-go/v2"
-	eventschemas "github.com/kofc7186/fundraiser-manager/pkg/event-schemas"
+	eventschemas "github.com/kofc7186/fundraiser-manager/pkg/event/schemas"
 	"github.com/kofc7186/fundraiser-manager/pkg/logging"
 	squarewebhooktypes "github.com/kofc7186/fundraiser-manager/pkg/square/types/webhooks"
 	"github.com/kofc7186/fundraiser-manager/pkg/square/webhooks"
@@ -21,7 +21,10 @@ import (
 	_ "github.com/GoogleCloudPlatform/functions-framework-go/funcframework"
 )
 
-const PUBLISH_TIMEOUT_SEC = 2 * time.Second
+const (
+	FUNCTION_NAME       = "square-webhook-ingress"
+	PUBLISH_TIMEOUT_SEC = 2 * time.Second
+)
 
 var squareOrderRequestTopic *pubsub.Topic
 var squarePaymentWebhookTopic *pubsub.Topic
@@ -31,7 +34,7 @@ var SQUARE_SIGNATURE_KEY string
 var WEBHOOK_URL string
 
 func init() {
-	slog.SetDefault(logging.Logger)
+	slog.SetDefault(logging.FunctionLogger(FUNCTION_NAME))
 
 	// if we don't have these environment variables set, we should panic ASAP
 	SQUARE_SIGNATURE_KEY = util.GetEnvOrPanic("SQUARE_SIGNATURE_KEY")

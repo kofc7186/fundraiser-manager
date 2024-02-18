@@ -7,6 +7,7 @@ replace github.com/kofc7186/fundraiser-manager => ../../../
 require (
 	cloud.google.com/go/pubsub v1.34.0
 	github.com/GoogleCloudPlatform/functions-framework-go v1.8.0
+	github.com/antihax/optional v1.0.0
 	github.com/cloudevents/sdk-go/v2 v2.15.0
 	github.com/hashicorp/go-retryablehttp v0.7.5
 	github.com/kofc7186/fundraiser-manager v0.0.0-00010101000000-000000000000
@@ -18,7 +19,6 @@ require (
 	cloud.google.com/go/compute/metadata v0.2.3 // indirect
 	cloud.google.com/go/functions v1.15.4 // indirect
 	cloud.google.com/go/iam v1.1.5 // indirect
-	github.com/antihax/optional v1.0.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-logr/logr v1.3.0 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect

@@ -1,28 +1,33 @@
 package util
 
 import (
+	"encoding/json"
+
 	"github.com/googleapis/google-cloudevents-go/cloud/firestoredata"
 )
 
 // ParseFirebaseDocument exists because https://github.com/googleapis/google-cloud-go/issues/1438 isn't fixed :/
-func ParseFirebaseDocument(value *firestoredata.Document) map[string]interface{} {
-	if value == nil {
+func ParseFirebaseDocument(from *firestoredata.Document, to interface{}) error {
+	if from == nil {
 		return nil
 	}
 
-	fields := value.GetFields()
-
+	fields := from.GetFields()
 	if fields == nil {
 		return nil
 	}
 
 	result := make(map[string]interface{})
-
 	for k, v := range fields {
 		result[k] = parseValue(v)
 	}
 
-	return result
+	bytes, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+
+	return json.Unmarshal(bytes, to)
 }
 
 func parseValue(value *firestoredata.Value) interface{} {
@@ -64,13 +69,11 @@ func parseMap(value *firestoredata.MapValue) interface{} {
 	}
 
 	fields := value.GetFields()
-
 	if fields == nil {
 		return nil
 	}
 
 	result := make(map[string]interface{})
-
 	for k, v := range fields {
 		result[k] = parseValue(v)
 	}
@@ -84,7 +87,6 @@ func parseArray(value *firestoredata.ArrayValue) interface{} {
 	}
 
 	values := value.GetValues()
-
 	if values == nil {
 		return nil
 	}

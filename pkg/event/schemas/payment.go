@@ -1,10 +1,10 @@
-package eventschemas
+package schemas
 
 import (
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	"github.com/google/uuid"
 	"github.com/kofc7186/fundraiser-manager/pkg/square/types/webhooks"
-	"github.com/kofc7186/fundraiser-manager/pkg/types"
+	"github.com/kofc7186/fundraiser-manager/pkg/types/payment"
 )
 
 const (
@@ -16,8 +16,8 @@ const (
 )
 
 type BasePayment struct {
-	Payment        types.Payment `json:"payment"`
-	IdempotencyKey string        `json:"idempotencyKey"`
+	Payment        *payment.Payment `json:"payment"`
+	IdempotencyKey string           `json:"idempotencyKey"`
 }
 
 type PaymentReceivedFromSquare struct {
@@ -34,14 +34,14 @@ func NewPaymentCreatedFromSquare(squarePaymentCreatedEvent *webhooks.PaymentCrea
 	event := newEvent(PaymentCreatedFromSquareType)
 	event.SetSubject(squarePaymentCreatedEvent.Data.Object.Payment.Id)
 
-	p, err := types.CreateInternalPaymentFromSquarePayment(squarePaymentCreatedEvent.Data.Object.Payment)
+	p, err := payment.CreateInternalPaymentFromSquarePayment(squarePaymentCreatedEvent.Data.Object.Payment)
 	if err != nil {
 		return nil, err
 	}
 
 	pr := &PaymentReceivedFromSquare{
 		BasePayment: BasePayment{
-			Payment:        *p,
+			Payment:        p,
 			IdempotencyKey: squarePaymentCreatedEvent.EventID,
 		},
 		Raw: squarePaymentCreatedEvent,
@@ -57,14 +57,14 @@ func NewPaymentUpdatedFromSquare(squarePaymentUpdatedEvent *webhooks.PaymentUpda
 	event := newEvent(PaymentUpdatedFromSquareType)
 	event.SetSubject(squarePaymentUpdatedEvent.Data.Object.Payment.Id)
 
-	p, err := types.CreateInternalPaymentFromSquarePayment(squarePaymentUpdatedEvent.Data.Object.Payment)
+	p, err := payment.CreateInternalPaymentFromSquarePayment(squarePaymentUpdatedEvent.Data.Object.Payment)
 	if err != nil {
 		return nil, err
 	}
 
 	pu := &PaymentUpdatedFromSquare{
 		BasePayment: BasePayment{
-			Payment:        *p,
+			Payment:        p,
 			IdempotencyKey: squarePaymentUpdatedEvent.EventID,
 		},
 		Raw: squarePaymentUpdatedEvent,
@@ -80,13 +80,13 @@ type PaymentCreated struct {
 	BasePayment
 }
 
-func NewPaymentCreated(payment *types.Payment) (*cloudevents.Event, error) {
+func NewPaymentCreated(payment *payment.Payment) (*cloudevents.Event, error) {
 	event := newEvent(PaymentCreatedType)
 	event.SetSubject(payment.ID)
 
 	pc := &PaymentCreated{
 		BasePayment: BasePayment{
-			Payment:        *payment,
+			Payment:        payment,
 			IdempotencyKey: uuid.Must(uuid.NewV7()).String(),
 		},
 	}
@@ -99,20 +99,20 @@ func NewPaymentCreated(payment *types.Payment) (*cloudevents.Event, error) {
 
 type PaymentUpdated struct {
 	BasePayment
-	OldPayment    types.Payment `json:"oldPayment"`
-	UpdatedFields []string      `json:"updatedFields"`
+	OldPayment    *payment.Payment `json:"oldPayment"`
+	UpdatedFields []string         `json:"updatedFields"`
 }
 
-func NewPaymentUpdated(oldPayment, newPayment *types.Payment, fieldMask []string) (*cloudevents.Event, error) {
+func NewPaymentUpdated(oldPayment, newPayment *payment.Payment, fieldMask []string) (*cloudevents.Event, error) {
 	event := newEvent(PaymentUpdatedType)
 	event.SetSubject(newPayment.ID)
 
 	pu := &PaymentUpdated{
 		BasePayment: BasePayment{
-			Payment:        *newPayment,
+			Payment:        newPayment,
 			IdempotencyKey: uuid.Must(uuid.NewV7()).String(),
 		},
-		OldPayment:    *oldPayment,
+		OldPayment:    oldPayment,
 		UpdatedFields: fieldMask,
 	}
 
@@ -126,13 +126,13 @@ type PaymentDeleted struct {
 	BasePayment
 }
 
-func NewPaymentDeleted(payment *types.Payment) (*cloudevents.Event, error) {
+func NewPaymentDeleted(payment *payment.Payment) (*cloudevents.Event, error) {
 	event := newEvent(PaymentDeletedType)
 	event.SetSubject(payment.ID)
 
 	pd := &PaymentDeleted{
 		BasePayment: BasePayment{
-			Payment:        *payment,
+			Payment:        payment,
 			IdempotencyKey: uuid.Must(uuid.NewV7()).String(),
 		},
 	}

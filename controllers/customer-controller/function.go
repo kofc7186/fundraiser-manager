@@ -2,7 +2,6 @@ package customercontroller
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -19,15 +18,18 @@ import (
 
 	"github.com/googleapis/google-cloudevents-go/cloud/firestoredata"
 
-	eventschemas "github.com/kofc7186/fundraiser-manager/pkg/event-schemas"
+	eventschemas "github.com/kofc7186/fundraiser-manager/pkg/event/schemas"
 	"github.com/kofc7186/fundraiser-manager/pkg/logging"
-	"github.com/kofc7186/fundraiser-manager/pkg/types"
+	customerType "github.com/kofc7186/fundraiser-manager/pkg/types/customer"
 	"github.com/kofc7186/fundraiser-manager/pkg/util"
 
 	_ "github.com/GoogleCloudPlatform/functions-framework-go/funcframework"
 )
 
-const PUBLISH_TIMEOUT_SEC = 2 * time.Second
+const (
+	FUNCTION_NAME       = "customer-controller"
+	PUBLISH_TIMEOUT_SEC = 2 * time.Second
+)
 
 var firestoreClient *firestore.Client
 var customerDocPath string
@@ -38,7 +40,7 @@ var squareCustomerRequestTopic *pubsub.Topic
 var expirationTime time.Time
 
 func init() {
-	slog.SetDefault(logging.Logger)
+	slog.SetDefault(logging.FunctionLogger(FUNCTION_NAME))
 
 	psClient, err := pubsub.NewClient(context.Background(), util.GetEnvOrPanic("GCP_PROJECT"))
 	if err != nil {
@@ -96,9 +98,10 @@ func ProcessSquareCustomerWebhookEvent(ctx context.Context, e event.Event) error
 
 func writeSquareCustomerToFirestore(ctx context.Context, e *event.Event) error {
 	customerCreateRequest := false
+	attemptedWrite := false
 
 	var idempotencyKey string
-	var proposedCustomer types.Customer
+	var proposedCustomer *customerType.Customer
 	switch e.Type() {
 	case eventschemas.CustomerCreatedFromSquareType:
 		customerCreateRequest = true
@@ -145,6 +148,7 @@ func writeSquareCustomerToFirestore(ctx context.Context, e *event.Event) error {
 		if err != nil {
 			if status.Code(err) == codes.NotFound {
 				// document doesn't yet exist, so just write it
+				attemptedWrite = true
 				return t.Set(docRef, proposedCustomer)
 			}
 			// document exists but there was some error, bail
@@ -154,12 +158,13 @@ func writeSquareCustomerToFirestore(ctx context.Context, e *event.Event) error {
 		if customerCreateRequest {
 			// if we get a create request and the doc already exists via an out of order event, just squelch it
 			// TODO: test this case
+			slog.DebugContext(ctx, "skipping creation since doc already exists", "idempotencyKey", idempotencyKey, "event", e)
 			return nil
 		}
 
 		// since the document already exists and we have an update event, let's make sure
 		// we really should update it
-		persistedCustomer := &types.Customer{}
+		persistedCustomer := &customerType.Customer{}
 		if err := docSnap.DataTo(persistedCustomer); err != nil {
 			return err
 		}
@@ -183,6 +188,7 @@ func writeSquareCustomerToFirestore(ctx context.Context, e *event.Event) error {
 		}
 
 		// if we get here, we have a newer proposal for customer so let's write it
+		attemptedWrite = true
 		return t.Set(docRef, proposedCustomer)
 	}
 
@@ -190,7 +196,10 @@ func writeSquareCustomerToFirestore(ctx context.Context, e *event.Event) error {
 		return err
 	}
 
-	slog.InfoContext(ctx, fmt.Sprintf("customer %v written at %v", docRef.ID, docRef.Path))
+	// if we got here and attemptedWrite is true, then we wrote the document successfully
+	if attemptedWrite {
+		slog.InfoContext(ctx, fmt.Sprintf("customer %v written at %v", docRef.ID, docRef.Path))
+	}
 	return nil
 }
 
@@ -204,12 +213,9 @@ func ProcessCDCEvent(ctx context.Context, e event.Event) error {
 	var internalEvent *event.Event
 	if data.GetValue() == nil {
 		// the customer document was deleted
-		b, err := json.Marshal(util.ParseFirebaseDocument(data.OldValue))
+		customer := &customerType.Customer{}
+		err := util.ParseFirebaseDocument(data.OldValue, customer)
 		if err != nil {
-			return err
-		}
-		customer := &types.Customer{}
-		if err := json.Unmarshal(b, customer); err != nil {
 			return err
 		}
 		internalEvent, err = eventschemas.NewCustomerDeleted(customer)
@@ -218,12 +224,9 @@ func ProcessCDCEvent(ctx context.Context, e event.Event) error {
 		}
 	} else if data.GetOldValue() == nil {
 		// the customer document was created
-		b, err := json.Marshal(util.ParseFirebaseDocument(data.Value))
+		customer := &customerType.Customer{}
+		err := util.ParseFirebaseDocument(data.Value, customer)
 		if err != nil {
-			return err
-		}
-		customer := &types.Customer{}
-		if err := json.Unmarshal(b, customer); err != nil {
 			return err
 		}
 		internalEvent, err = eventschemas.NewCustomerCreated(customer)
@@ -232,20 +235,13 @@ func ProcessCDCEvent(ctx context.Context, e event.Event) error {
 		}
 	} else {
 		// the customer document was updated
-		customerBytes, err := json.Marshal(util.ParseFirebaseDocument(data.Value))
+		customer := &customerType.Customer{}
+		err := util.ParseFirebaseDocument(data.Value, customer)
 		if err != nil {
 			return err
 		}
-		customer := &types.Customer{}
-		if err := json.Unmarshal(customerBytes, customer); err != nil {
-			return err
-		}
-		oldCustomerBytes, err := json.Marshal(util.ParseFirebaseDocument(data.OldValue))
-		if err != nil {
-			return err
-		}
-		oldCustomer := &types.Customer{}
-		if err := json.Unmarshal(oldCustomerBytes, oldCustomer); err != nil {
+		oldCustomer := &customerType.Customer{}
+		if err = util.ParseFirebaseDocument(data.OldValue, oldCustomer); err != nil {
 			return err
 		}
 		internalEvent, err = eventschemas.NewCustomerUpdated(oldCustomer, customer, data.UpdateMask.FieldPaths)

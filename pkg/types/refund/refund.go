@@ -1,4 +1,4 @@
-package types
+package refund
 
 import (
 	"fmt"
@@ -49,7 +49,7 @@ func CreateInternalRefundFromSquareRefund(squareRefund models.PaymentRefund) (*R
 	r := &Refund{
 		ID:              squareRefund.Id,
 		Reason:          squareRefund.Reason,
-		RefundAmount:    float64(squareRefund.AmountMoney.Amount / 100),
+		RefundAmount:    float64(squareRefund.AmountMoney.Amount) / float64(100),
 		SquarePaymentID: squareRefund.PaymentId,
 		SquareOrderID:   squareRefund.OrderId,
 		Unlinked:        squareRefund.Unlinked,
@@ -68,7 +68,7 @@ func CreateInternalRefundFromSquareRefund(squareRefund models.PaymentRefund) (*R
 	}
 
 	for _, fee := range squareRefund.ProcessingFee {
-		r.FeeAmount += float64(fee.AmountMoney.Amount / 100)
+		r.FeeAmount += float64(fee.AmountMoney.Amount) / float64(100)
 	}
 
 	return r, nil

@@ -1,4 +1,4 @@
-package types
+package payment
 
 import (
 	"fmt"
@@ -78,15 +78,15 @@ func CreateInternalPaymentFromSquarePayment(squarePayment models.Payment) (*Paym
 	}
 
 	if squarePayment.TipMoney != nil {
-		p.TipAmount = float64(squarePayment.TipMoney.Amount / 100)
+		p.TipAmount = float64(squarePayment.TipMoney.Amount) / float64(100)
 	}
 
 	if squarePayment.TotalMoney != nil {
-		p.TotalAmount = float64(squarePayment.TotalMoney.Amount / 100)
+		p.TotalAmount = float64(squarePayment.TotalMoney.Amount) / float64(100)
 	}
 
 	if squarePayment.RefundedMoney != nil {
-		p.RefundAmount = float64(squarePayment.RefundedMoney.Amount / 100)
+		p.RefundAmount = float64(squarePayment.RefundedMoney.Amount) / float64(100)
 	}
 
 	var err error
@@ -104,7 +104,7 @@ func CreateInternalPaymentFromSquarePayment(squarePayment models.Payment) (*Paym
 	}
 
 	for _, fee := range squarePayment.ProcessingFee {
-		p.FeeAmount += float64(fee.AmountMoney.Amount / 100)
+		p.FeeAmount += float64(fee.AmountMoney.Amount) / float64(100)
 	}
 
 	// per https://developer.squareup.com/reference/square/payments-api/webhooks/payment.created

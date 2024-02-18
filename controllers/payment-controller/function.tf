@@ -17,6 +17,7 @@ resource "google_project_service" "service" {
     "eventarc.googleapis.com",
     "storage.googleapis.com",
     "pubsub.googleapis.com",
+    "cloudscheduler.googleapis.com",
   ])
 
   project = var.gcp_project_id
@@ -175,5 +176,42 @@ resource "google_cloudfunctions2_function" "payment-controller-square-payment-re
     event_type     = "google.cloud.pubsub.topic.v1.messagePublished"
     pubsub_topic   = "projects/${var.gcp_project_id}/topics/${var.square_payment_response_topic}"
     retry_policy   = "RETRY_POLICY_RETRY"
+  }
+}
+
+resource "google_cloud_scheduler_job" "pull_payments" {
+  name        = "pull_square_payments"
+  # the description string contains the begin & end times to force an update if those value change
+  description = "Pulling events from ${var.pull_payments_begin_time} to ${var.pull_payments_end_time}"
+
+  schedule = var.pull_payments_schedule
+  paused   = !var.pull_payments_enabled
+
+  pubsub_target {
+    topic_name = "projects/${var.gcp_project_id}/topics/${var.square_payment_request_topic}"
+    # this needs to follow the CloudEvents Schema for the SquareListPaymentsRequest event
+    # as defined in pkg/event/schemas/square_async.go
+    data       = base64encode(jsonencode(
+      {
+        data: {
+          beginTime: var.pull_payments_begin_time,
+          endTime:   var.pull_payments_end_time,
+        },
+        datacontenttype: "application/json",
+        id: uuid(),
+        type: "org.kofc7186.fundraiserManager.square.listPayments.request",
+        source: "com.google.cloud.scheduler.pull_payments",
+        specversion: "1.0",
+      }
+    ))
+  }
+
+  # this is set such that the new uuid from each plan does not cause a re-deploy
+  lifecycle {
+    ignore_changes = [ pubsub_target[0].data ]
+    postcondition {
+      condition     = var.pull_payments_enabled && (var.pull_payments_begin_time != "" && var.pull_payments_end_time != "" && var.pull_payments_schedule != "")
+      error_message = "if pull_payments_enabled == true, then begin_time, end_time, and schedule MUST be set"
+    }
   }
 }

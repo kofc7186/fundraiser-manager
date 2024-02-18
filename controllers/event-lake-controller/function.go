@@ -11,19 +11,21 @@ import (
 	"github.com/GoogleCloudPlatform/functions-framework-go/functions"
 	"github.com/cloudevents/sdk-go/v2/event"
 	"github.com/google/uuid"
-	eventschemas "github.com/kofc7186/fundraiser-manager/pkg/event-schemas"
+	eventschemas "github.com/kofc7186/fundraiser-manager/pkg/event/schemas"
 	"github.com/kofc7186/fundraiser-manager/pkg/logging"
 	"github.com/kofc7186/fundraiser-manager/pkg/util"
 
 	_ "github.com/GoogleCloudPlatform/functions-framework-go/funcframework"
 )
 
+const FUNCTION_NAME = "event-lake-controller"
+
 var firestoreClient *firestore.Client
 
 var eventLakePath string
 
 func init() {
-	slog.SetDefault(logging.Logger)
+	slog.SetDefault(logging.FunctionLogger(FUNCTION_NAME))
 
 	var err error
 	firestoreClient, err = firestore.NewClient(context.Background(), util.GetEnvOrPanic("GCP_PROJECT"))

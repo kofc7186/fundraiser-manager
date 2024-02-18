@@ -80,10 +80,11 @@ resource "google_cloudfunctions2_function" "order-controller-square-order-respon
     min_instance_count = var.min_instance_count
 
     environment_variables = {
-      GCP_PROJECT        = var.gcp_project_id
-      EXPIRATION_TIME    = var.expiration_time
-      FUNDRAISER_ID      = var.fundraiser_id
-      ORDER_EVENTS_TOPIC = var.order_events_topic
+      GCP_PROJECT                = var.gcp_project_id
+      EXPIRATION_TIME            = var.expiration_time
+      FUNDRAISER_ID              = var.fundraiser_id
+      ORDER_EVENTS_TOPIC         = var.order_events_topic
+      SQUARE_ORDER_REQUEST_TOPIC = var.square_order_request_topic
     }
   }
 
@@ -116,10 +117,11 @@ resource "google_cloudfunctions2_function" "customer-watcher" {
     min_instance_count = var.min_instance_count
 
     environment_variables = {
-      GCP_PROJECT        = var.gcp_project_id
-      EXPIRATION_TIME    = var.expiration_time
-      FUNDRAISER_ID      = var.fundraiser_id
-      ORDER_EVENTS_TOPIC = var.order_events_topic
+      GCP_PROJECT                = var.gcp_project_id
+      EXPIRATION_TIME            = var.expiration_time
+      FUNDRAISER_ID              = var.fundraiser_id
+      ORDER_EVENTS_TOPIC         = var.order_events_topic
+      SQUARE_ORDER_REQUEST_TOPIC = var.square_order_request_topic
     }
   }
 
@@ -152,10 +154,11 @@ resource "google_cloudfunctions2_function" "payment-watcher" {
     min_instance_count = var.min_instance_count
 
     environment_variables = {
-      GCP_PROJECT        = var.gcp_project_id
-      EXPIRATION_TIME    = var.expiration_time
-      FUNDRAISER_ID      = var.fundraiser_id
-      ORDER_EVENTS_TOPIC = var.order_events_topic
+      GCP_PROJECT                = var.gcp_project_id
+      EXPIRATION_TIME            = var.expiration_time
+      FUNDRAISER_ID              = var.fundraiser_id
+      ORDER_EVENTS_TOPIC         = var.order_events_topic
+      SQUARE_ORDER_REQUEST_TOPIC = var.square_order_request_topic
     }
   }
 
@@ -188,10 +191,11 @@ resource "google_cloudfunctions2_function" "square-order-response" {
     min_instance_count = var.min_instance_count
 
     environment_variables = {
-      GCP_PROJECT        = var.gcp_project_id
-      EXPIRATION_TIME    = var.expiration_time
-      FUNDRAISER_ID      = var.fundraiser_id
-      ORDER_EVENTS_TOPIC = var.order_events_topic
+      GCP_PROJECT                = var.gcp_project_id
+      EXPIRATION_TIME            = var.expiration_time
+      FUNDRAISER_ID              = var.fundraiser_id
+      ORDER_EVENTS_TOPIC         = var.order_events_topic
+      SQUARE_ORDER_REQUEST_TOPIC = var.square_order_request_topic
     }
   }
 

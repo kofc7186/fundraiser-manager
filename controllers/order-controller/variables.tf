@@ -51,6 +51,11 @@ variable "order_events_topic" {
   type        = string
 }
 
+variable "square_order_request_topic" {
+  description = "The pubsub topic where Square order requests are published"
+  type        = string
+}
+
 variable "square_order_response_topic" {
   description = "The pubsub topic where Square order responses are published"
   type        = string

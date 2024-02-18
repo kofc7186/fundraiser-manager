@@ -1,4 +1,4 @@
-package eventschemas
+package schemas
 
 // from https://github.com/GoogleCloudPlatform/golang-samples/blob/HEAD/functions/functionsv2/hellopubsub/hello_pubsub.go
 

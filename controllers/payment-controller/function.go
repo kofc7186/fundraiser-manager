@@ -2,7 +2,6 @@ package paymentcontroller
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -18,15 +17,19 @@ import (
 	"github.com/cloudevents/sdk-go/v2/event"
 	"github.com/googleapis/google-cloudevents-go/cloud/firestoredata"
 
-	eventschemas "github.com/kofc7186/fundraiser-manager/pkg/event-schemas"
+	eventschemas "github.com/kofc7186/fundraiser-manager/pkg/event/schemas"
 	"github.com/kofc7186/fundraiser-manager/pkg/logging"
-	"github.com/kofc7186/fundraiser-manager/pkg/types"
+	paymentType "github.com/kofc7186/fundraiser-manager/pkg/types/payment"
+	refundType "github.com/kofc7186/fundraiser-manager/pkg/types/refund"
 	"github.com/kofc7186/fundraiser-manager/pkg/util"
 
 	_ "github.com/GoogleCloudPlatform/functions-framework-go/funcframework"
 )
 
-const PUBLISH_TIMEOUT_SEC = 2 * time.Second
+const (
+	FUNCTION_NAME       = "payment-controller"
+	PUBLISH_TIMEOUT_SEC = 2 * time.Second
+)
 
 var firestoreClient *firestore.Client
 var paymentDocPath string
@@ -37,7 +40,7 @@ var squarePaymentRequestTopic *pubsub.Topic
 var expirationTime time.Time
 
 func init() {
-	slog.SetDefault(logging.Logger)
+	slog.SetDefault(logging.FunctionLogger(FUNCTION_NAME))
 
 	psClient, err := pubsub.NewClient(context.Background(), util.GetEnvOrPanic("GCP_PROJECT"))
 	if err != nil {
@@ -80,12 +83,13 @@ func ProcessSquarePaymentWebhookEvent(ctx context.Context, e event.Event) error 
 	// there are two CloudEvents - one for the pubsub message "event", and then the data within
 	var msg eventschemas.MessagePublishedData
 	if err := e.DataAs(&msg); err != nil {
-		slog.Error(err.Error(), "event", e)
+		slog.ErrorContext(ctx, err.Error(), "event", e)
 		return err
 	}
 
 	nestedEvent := &event.Event{}
 	if err := nestedEvent.UnmarshalJSON(msg.Message.Data); err != nil {
+		slog.ErrorContext(ctx, err.Error(), "event", e)
 		return err
 	}
 
@@ -94,15 +98,17 @@ func ProcessSquarePaymentWebhookEvent(ctx context.Context, e event.Event) error 
 
 func writeSquarePaymentToFirestore(ctx context.Context, e *event.Event) error {
 	paymentCreateRequest := false
+	attemptedWrite := false
 
 	var idempotencyKey string
-	var proposedPayment types.Payment
+	var proposedPayment *paymentType.Payment
 	switch e.Type() {
 	case eventschemas.PaymentCreatedFromSquareType:
 		paymentCreateRequest = true
 
 		pr := &eventschemas.PaymentReceivedFromSquare{}
 		if err := e.DataAs(pr); err != nil {
+			slog.ErrorContext(ctx, err.Error(), "event", e)
 			return err
 		}
 		idempotencyKey = pr.BasePayment.IdempotencyKey
@@ -110,6 +116,7 @@ func writeSquarePaymentToFirestore(ctx context.Context, e *event.Event) error {
 	case eventschemas.PaymentUpdatedFromSquareType:
 		pu := &eventschemas.PaymentUpdatedFromSquare{}
 		if err := e.DataAs(pu); err != nil {
+			slog.ErrorContext(ctx, err.Error(), "event", e)
 			return err
 		}
 		idempotencyKey = pu.BasePayment.IdempotencyKey
@@ -117,10 +124,14 @@ func writeSquarePaymentToFirestore(ctx context.Context, e *event.Event) error {
 	case eventschemas.SquareGetPaymentResponseType:
 		sgpr := &eventschemas.SquareGetPaymentResponse{}
 		if err := e.DataAs(sgpr); err != nil {
+			slog.ErrorContext(ctx, err.Error(), "event", e)
 			return err
 		}
 		idempotencyKey = sgpr.BasePayment.IdempotencyKey
 		proposedPayment = sgpr.BasePayment.Payment
+	default:
+		// TODO: slog
+		return nil
 	}
 
 	// make sure to update the map to denote that we've processed this event already
@@ -128,7 +139,9 @@ func writeSquarePaymentToFirestore(ctx context.Context, e *event.Event) error {
 	// the boolean here is only to allow Firestore to map back to Go struct; the important
 	// thing is that the key is put into the map
 	proposedPayment.IdempotencyKeys = make(map[string]bool, 1)
-	proposedPayment.IdempotencyKeys[idempotencyKey] = true
+	if idempotencyKey != "" {
+		proposedPayment.IdempotencyKeys[idempotencyKey] = true
+	}
 
 	// ensure the firestore expiration timestamp is written in the appropriate field
 	proposedPayment.Expiration = expirationTime
@@ -139,9 +152,11 @@ func writeSquarePaymentToFirestore(ctx context.Context, e *event.Event) error {
 		if err != nil {
 			if status.Code(err) == codes.NotFound {
 				// document doesn't yet exist, so just write it
+				attemptedWrite = true
 				return t.Set(docRef, proposedPayment)
 			}
 			// document exists but there was some error, bail
+			slog.ErrorContext(ctx, err.Error(), "event", e)
 			return err
 		}
 
@@ -153,8 +168,9 @@ func writeSquarePaymentToFirestore(ctx context.Context, e *event.Event) error {
 
 		// since the document already exists and we have an update event, let's make sure
 		// we really should update it
-		persistedPayment := &types.Payment{}
+		persistedPayment := &paymentType.Payment{}
 		if err := docSnap.DataTo(persistedPayment); err != nil {
+			slog.ErrorContext(ctx, err.Error(), "event", e)
 			return err
 		}
 		// search the map to see if we've observed the idempotency key before
@@ -177,14 +193,19 @@ func writeSquarePaymentToFirestore(ctx context.Context, e *event.Event) error {
 		}
 
 		// if we get here, we have a newer proposal for payment so let's write it
+		attemptedWrite = true
 		return t.Set(docRef, proposedPayment)
 	}
 
 	if err := firestoreClient.RunTransaction(ctx, transaction); err != nil {
+		slog.ErrorContext(ctx, err.Error(), "event", e)
 		return err
 	}
 
-	slog.InfoContext(ctx, fmt.Sprintf("payment %v written at %v", docRef.ID, docRef.Path))
+	// if we got here and attemptedWrite is true, then we wrote the document successfully
+	if attemptedWrite {
+		slog.InfoContext(ctx, fmt.Sprintf("payment %v written at %v", docRef.ID, docRef.Path))
+	}
 	return nil
 }
 
@@ -192,64 +213,60 @@ func writeSquarePaymentToFirestore(ctx context.Context, e *event.Event) error {
 func ProcessCDCEvent(ctx context.Context, e event.Event) error {
 	var data firestoredata.DocumentEventData
 	if err := proto.Unmarshal(e.Data(), &data); err != nil {
+		slog.ErrorContext(ctx, err.Error(), "event", e)
 		return fmt.Errorf("proto.Unmarshal: %w", err)
 	}
 
 	var internalEvent *event.Event
 	if data.GetValue() == nil {
 		// the payment document was deleted
-		b, err := json.Marshal(util.ParseFirebaseDocument(data.OldValue))
+		payment := &paymentType.Payment{}
+		err := util.ParseFirebaseDocument(data.OldValue, payment)
 		if err != nil {
-			return err
-		}
-		payment := &types.Payment{}
-		if err := json.Unmarshal(b, payment); err != nil {
+			slog.ErrorContext(ctx, err.Error(), "event", e)
 			return err
 		}
 		internalEvent, err = eventschemas.NewPaymentDeleted(payment)
 		if err != nil {
+			slog.ErrorContext(ctx, err.Error(), "event", e)
 			return err
 		}
 	} else if data.GetOldValue() == nil {
 		// the payment document was created
-		b, err := json.Marshal(util.ParseFirebaseDocument(data.Value))
+		payment := &paymentType.Payment{}
+		err := util.ParseFirebaseDocument(data.Value, payment)
 		if err != nil {
-			return err
-		}
-		payment := &types.Payment{}
-		if err := json.Unmarshal(b, payment); err != nil {
+			slog.ErrorContext(ctx, err.Error(), "event", e)
 			return err
 		}
 		internalEvent, err = eventschemas.NewPaymentCreated(payment)
 		if err != nil {
+			slog.ErrorContext(ctx, err.Error(), "event", e)
 			return err
 		}
 	} else {
 		// the payment document was updated
-		paymentBytes, err := json.Marshal(util.ParseFirebaseDocument(data.Value))
+		payment := &paymentType.Payment{}
+		err := util.ParseFirebaseDocument(data.Value, payment)
 		if err != nil {
+			slog.ErrorContext(ctx, err.Error(), "event", e)
 			return err
 		}
-		payment := &types.Payment{}
-		if err := json.Unmarshal(paymentBytes, payment); err != nil {
-			return err
-		}
-		oldPaymentBytes, err := json.Marshal(util.ParseFirebaseDocument(data.OldValue))
-		if err != nil {
-			return err
-		}
-		oldPayment := &types.Payment{}
-		if err := json.Unmarshal(oldPaymentBytes, oldPayment); err != nil {
+		oldPayment := &paymentType.Payment{}
+		if err = util.ParseFirebaseDocument(data.OldValue, oldPayment); err != nil {
+			slog.ErrorContext(ctx, err.Error(), "event", e)
 			return err
 		}
 		internalEvent, err = eventschemas.NewPaymentUpdated(oldPayment, payment, data.UpdateMask.FieldPaths)
 		if err != nil {
+			slog.ErrorContext(ctx, err.Error(), "event", e)
 			return err
 		}
 	}
 
 	eventJSON, err := internalEvent.MarshalJSON()
 	if err != nil {
+		slog.ErrorContext(ctx, err.Error(), "event", e)
 		return err
 	}
 	timeoutContext, cancel := context.WithTimeout(context.Background(), PUBLISH_TIMEOUT_SEC)
@@ -258,6 +275,7 @@ func ProcessCDCEvent(ctx context.Context, e event.Event) error {
 	publishResult := paymentEventsTopic.Publish(timeoutContext, &pubsub.Message{Data: eventJSON})
 	messageID, err := publishResult.Get(timeoutContext) // this call blocks until complete or timeout occurs
 	if err != nil {
+		slog.ErrorContext(ctx, err.Error(), "event", e)
 		return err
 	}
 	slog.InfoContext(ctx, fmt.Sprintf("published %s", internalEvent.Type()), "messageID", messageID, "paymentID", internalEvent.Subject())
@@ -269,22 +287,24 @@ func RefundWatcher(ctx context.Context, e event.Event) error {
 	// there are two CloudEvents - one for the pubsub message "event", and then the data within
 	var msg eventschemas.MessagePublishedData
 	if err := e.DataAs(&msg); err != nil {
-		slog.Error(err.Error(), "event", e)
+		slog.ErrorContext(ctx, err.Error(), "event", e)
 		return err
 	}
 
 	nestedEvent := &event.Event{}
 	if err := nestedEvent.UnmarshalJSON(msg.Message.Data); err != nil {
+		slog.ErrorContext(ctx, err.Error(), "event", e)
 		return err
 	}
 
 	var idempotencyKey string
-	var refundToProcess types.Refund
+	var refundToProcess *refundType.Refund
 
 	switch nestedEvent.Type() {
 	case eventschemas.RefundCreatedType:
 		rc := &eventschemas.RefundCreated{}
 		if err := nestedEvent.DataAs(rc); err != nil {
+			slog.ErrorContext(ctx, err.Error(), "event", e)
 			return err
 		}
 		idempotencyKey = rc.IdempotencyKey
@@ -292,6 +312,7 @@ func RefundWatcher(ctx context.Context, e event.Event) error {
 	case eventschemas.RefundUpdatedType:
 		ru := &eventschemas.RefundUpdated{}
 		if err := nestedEvent.DataAs(ru); err != nil {
+			slog.ErrorContext(ctx, err.Error(), "event", e)
 			return err
 		}
 		idempotencyKey = ru.IdempotencyKey
@@ -299,6 +320,7 @@ func RefundWatcher(ctx context.Context, e event.Event) error {
 	case eventschemas.RefundDeletedType:
 		rd := &eventschemas.RefundDeleted{}
 		if err := nestedEvent.DataAs(rd); err != nil {
+			slog.ErrorContext(ctx, err.Error(), "event", e)
 			return err
 		}
 		idempotencyKey = rd.IdempotencyKey
@@ -318,6 +340,7 @@ func RefundWatcher(ctx context.Context, e event.Event) error {
 				getPaymentEvent := eventschemas.NewSquareGetPaymentRequest(refundToProcess.SquarePaymentID)
 				eventJSON, err := getPaymentEvent.MarshalJSON()
 				if err != nil {
+					slog.ErrorContext(ctx, err.Error(), "event", e)
 					return err
 				}
 				timeoutContext, cancel := context.WithTimeout(context.Background(), PUBLISH_TIMEOUT_SEC)
@@ -326,17 +349,20 @@ func RefundWatcher(ctx context.Context, e event.Event) error {
 				publishResult := squarePaymentRequestTopic.Publish(timeoutContext, &pubsub.Message{Data: eventJSON})
 				messageID, err := publishResult.Get(timeoutContext) // this call blocks until complete or timeout occurs
 				if err != nil {
+					slog.ErrorContext(ctx, err.Error(), "event", e)
 					return err
 				}
 				slog.InfoContext(ctx, "published SquareGetPaymentRequest during refund processing", "messageID", messageID, "paymentID", refundToProcess.SquarePaymentID)
 				return nil
 			}
 			// document exists but there was some database error, bail
+			slog.ErrorContext(ctx, err.Error(), "event", e)
 			return err
 		}
 		// payment object exists, let's denote the fact we have a related refund
-		persistedPayment := &types.Payment{}
+		persistedPayment := &paymentType.Payment{}
 		if err := paymentDocSnap.DataTo(persistedPayment); err != nil {
+			slog.ErrorContext(ctx, err.Error(), "event", e)
 			return err
 		}
 
@@ -353,7 +379,7 @@ func RefundWatcher(ctx context.Context, e event.Event) error {
 		switch nestedEvent.Type() {
 		case eventschemas.RefundCreatedType:
 			switch refundToProcess.Status {
-			case types.REFUND_STATUS_PENDING, types.REFUND_STATUS_COMPLETED:
+			case refundType.REFUND_STATUS_PENDING, refundType.REFUND_STATUS_COMPLETED:
 				persistedPayment.RefundAmount += refundToProcess.RefundAmount
 				persistedPayment.FeeAmount -= refundToProcess.FeeAmount
 				persistedPayment.SquareRefundIDs = append(persistedPayment.SquareRefundIDs, refundToProcess.ID)
@@ -363,7 +389,7 @@ func RefundWatcher(ctx context.Context, e event.Event) error {
 			}
 		case eventschemas.RefundUpdatedType:
 			switch refundToProcess.Status {
-			case types.REFUND_STATUS_PENDING, types.REFUND_STATUS_COMPLETED:
+			case refundType.REFUND_STATUS_PENDING, refundType.REFUND_STATUS_COMPLETED:
 				if slices.Contains[[]string, string](persistedPayment.SquareRefundIDs, refundToProcess.ID) {
 					slog.DebugContext(ctx, "already processed refund against payment", "event", nestedEvent)
 				} else {
@@ -371,7 +397,7 @@ func RefundWatcher(ctx context.Context, e event.Event) error {
 					persistedPayment.FeeAmount -= refundToProcess.FeeAmount
 					persistedPayment.SquareRefundIDs = append(persistedPayment.SquareRefundIDs, refundToProcess.ID)
 				}
-			case types.REFUND_STATUS_FAILED:
+			case refundType.REFUND_STATUS_FAILED:
 				// this can happen if there is zero Square balance, and the withdrawal fails for some reason
 				if slices.Contains[[]string, string](persistedPayment.SquareRefundIDs, refundToProcess.ID) {
 					persistedPayment.RefundAmount -= refundToProcess.RefundAmount
@@ -392,6 +418,7 @@ func RefundWatcher(ctx context.Context, e event.Event) error {
 		}
 
 		if err := t.Set(paymentDocRef, persistedPayment); err != nil {
+			slog.ErrorContext(ctx, err.Error(), "event", e)
 			return err
 		}
 

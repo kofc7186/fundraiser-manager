@@ -1,11 +1,11 @@
-package eventschemas
+package schemas
 
 import (
 	"time"
 
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	"github.com/google/uuid"
-	"github.com/kofc7186/fundraiser-manager/pkg/types"
+	"github.com/kofc7186/fundraiser-manager/pkg/types/order"
 )
 
 const (
@@ -20,21 +20,21 @@ const (
 )
 
 type BaseOrder struct {
-	Order          types.Order `json:"order"`
-	IdempotencyKey string      `json:"idempotencyKey"`
+	Order          *order.Order `json:"order"`
+	IdempotencyKey string       `json:"idempotencyKey"`
 }
 
 type OrderCreated struct {
 	BaseOrder
 }
 
-func NewOrderCreated(order *types.Order) (*cloudevents.Event, error) {
+func NewOrderCreated(order *order.Order) (*cloudevents.Event, error) {
 	event := newEvent(OrderCreatedType)
 	event.SetSubject(order.ID)
 
 	oc := &OrderCreated{
 		BaseOrder: BaseOrder{
-			Order:          *order,
+			Order:          order,
 			IdempotencyKey: uuid.Must(uuid.NewV7()).String(),
 		},
 	}
@@ -47,20 +47,20 @@ func NewOrderCreated(order *types.Order) (*cloudevents.Event, error) {
 
 type OrderUpdated struct {
 	BaseOrder
-	OldOrder      types.Order `json:"oldOrder"`
-	UpdatedFields []string    `json:"updatedFields"`
+	OldOrder      *order.Order `json:"oldOrder"`
+	UpdatedFields []string     `json:"updatedFields"`
 }
 
-func NewOrderUpdated(oldOrder, newOrder *types.Order, fieldMask []string) (*cloudevents.Event, error) {
+func NewOrderUpdated(oldOrder, newOrder *order.Order, fieldMask []string) (*cloudevents.Event, error) {
 	event := newEvent(OrderUpdatedType)
 	event.SetSubject(newOrder.ID)
 
 	ou := &OrderUpdated{
 		BaseOrder: BaseOrder{
-			Order:          *newOrder,
+			Order:          newOrder,
 			IdempotencyKey: uuid.Must(uuid.NewV7()).String(),
 		},
-		OldOrder:      *oldOrder,
+		OldOrder:      oldOrder,
 		UpdatedFields: fieldMask,
 	}
 
@@ -74,13 +74,13 @@ type OrderDeleted struct {
 	BaseOrder
 }
 
-func NewOrderDeleted(order *types.Order) (*cloudevents.Event, error) {
+func NewOrderDeleted(order *order.Order) (*cloudevents.Event, error) {
 	event := newEvent(OrderDeletedType)
 	event.SetSubject(order.ID)
 
 	od := &OrderDeleted{
 		BaseOrder: BaseOrder{
-			Order:          *order,
+			Order:          order,
 			IdempotencyKey: uuid.Must(uuid.NewV7()).String(),
 		},
 	}

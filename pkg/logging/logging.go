@@ -24,3 +24,7 @@ var Logger = slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 	}}))
 
 const LevelCritical = slog.Level(12)
+
+func FunctionLogger(functionName string) *slog.Logger {
+	return Logger.With(slog.Group("logging.googleapis.com/labels", "function", functionName))
+}

@@ -1,4 +1,4 @@
-package eventschemas
+package schemas
 
 import (
 	cloudevents "github.com/cloudevents/sdk-go/v2"

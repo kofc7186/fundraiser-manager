@@ -1,14 +1,19 @@
-package eventschemas
+package schemas
 
 import (
+	"time"
+
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	"github.com/kofc7186/fundraiser-manager/pkg/square/types/models"
-	"github.com/kofc7186/fundraiser-manager/pkg/types"
+	"github.com/kofc7186/fundraiser-manager/pkg/types/customer"
+	"github.com/kofc7186/fundraiser-manager/pkg/types/order"
+	"github.com/kofc7186/fundraiser-manager/pkg/types/payment"
 )
 
 const (
 	SquareGetPaymentRequestType        = "org.kofc7186.fundraiserManager.square.getPayment.request"
 	SquareGetPaymentResponseType       = "org.kofc7186.fundraiserManager.square.getPayment.response"
+	SquareListPaymentsRequestType      = "org.kofc7186.fundraiserManager.square.listPayments.request"
 	SquareRetrieveOrderRequestType     = "org.kofc7186.fundraiserManager.square.retrieveOrder.request"
 	SquareRetrieveOrderResponseType    = "org.kofc7186.fundraiserManager.square.retrieveOrder.response"
 	SquareRetrieveCustomerRequestType  = "org.kofc7186.fundraiserManager.square.retrieveCustomer.request"
@@ -32,14 +37,14 @@ func NewSquareGetPaymentResponse(source string, response models.GetPaymentRespon
 	event := newEvent(SquareGetPaymentResponseType)
 	event.SetSubject(response.Payment.Id)
 
-	payment, err := types.CreateInternalPaymentFromSquarePayment(*response.Payment)
+	payment, err := payment.CreateInternalPaymentFromSquarePayment(*response.Payment)
 	if err != nil {
 		return nil, err
 	}
 
 	sgpc := &SquareGetPaymentResponse{
 		BasePayment: BasePayment{
-			Payment:        *payment,
+			Payment:        payment,
 			IdempotencyKey: "",
 		},
 		RequestSource: source,
@@ -48,6 +53,22 @@ func NewSquareGetPaymentResponse(source string, response models.GetPaymentRespon
 
 	_ = event.SetData(applicationJSON, sgpc)
 	return event, nil
+}
+
+type SquareListPaymentsRequest struct {
+	BeginTime time.Time `json:"beginTime"`
+	EndTime   time.Time `json:"endTime"`
+}
+
+func NewSquareListPaymentsRequest(beginTime, endTime time.Time) *cloudevents.Event {
+	event := newEvent(SquareListPaymentsRequestType)
+
+	slpr := &SquareListPaymentsRequest{
+		BeginTime: beginTime,
+		EndTime:   endTime,
+	}
+	_ = event.SetData(applicationJSON, slpr)
+	return event
 }
 
 func NewSquareRetrieveOrderRequest(id string) *cloudevents.Event {
@@ -67,14 +88,14 @@ func NewSquareRetrieveOrderResponse(source string, response models.RetrieveOrder
 	event := newEvent(SquareRetrieveOrderResponseType)
 	event.SetSubject(response.Order.Id)
 
-	order, err := types.CreateInternalOrderFromSquareOrder(*response.Order)
+	order, err := order.CreateInternalOrderFromSquareOrder(*response.Order)
 	if err != nil {
 		return nil, err
 	}
 
 	sgoc := &SquareRetrieveOrderResponse{
 		BaseOrder: BaseOrder{
-			Order:          *order,
+			Order:          order,
 			IdempotencyKey: "",
 		},
 		RequestSource: source,
@@ -102,14 +123,14 @@ func NewSquareRetrieveCustomerResponse(source string, response models.RetrieveCu
 	event := newEvent(SquareRetrieveCustomerResponseType)
 	event.SetSubject(response.Customer.Id)
 
-	customer, err := types.CreateInternalCustomerFromSquareCustomer(*response.Customer)
+	customer, err := customer.CreateInternalCustomerFromSquareCustomer(*response.Customer)
 	if err != nil {
 		return nil, err
 	}
 
 	sgcc := &SquareRetrieveCustomerResponse{
 		BaseCustomer: BaseCustomer{
-			Customer:       *customer,
+			Customer:       customer,
 			IdempotencyKey: "",
 		},
 		RequestSource: source,

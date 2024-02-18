@@ -1,4 +1,4 @@
-package types
+package customer
 
 import (
 	"time"
@@ -16,6 +16,7 @@ type Customer struct {
 	PhoneNumber       string          `json:"phoneNumber" firestore:"phoneNumber"`
 	KnightOfColumbus  bool            `json:"isKnight" firestore:"isKnight"`
 	SquareUpdatedTime time.Time       `json:"squareUpdatedTime" firestore:"squareUpdatedTime"`
+	Version           int64           `json:"version" firestore:"version"`
 }
 
 func CreateInternalCustomerFromSquareCustomer(squareCustomer models.Customer) (*Customer, error) {
@@ -25,6 +26,7 @@ func CreateInternalCustomerFromSquareCustomer(squareCustomer models.Customer) (*
 		FirstName:    squareCustomer.GivenName,
 		LastName:     squareCustomer.FamilyName,
 		PhoneNumber:  squareCustomer.PhoneNumber,
+		Version:      squareCustomer.Version,
 	}
 
 	var err error
