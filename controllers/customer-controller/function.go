@@ -308,12 +308,12 @@ func OrderAndPaymentWatcher(ctx context.Context, e event.Event) error {
 		}
 		squareCustomerID = ou.Order.SquareCustomerID
 	default:
-		slog.DebugContext(ctx, fmt.Sprintf("squelching %q event", e.Type()), "event", nestedEvent.String())
+		slog.DebugContext(ctx, fmt.Sprintf("squelching %q event", e.Type()), "event", nestedEvent)
 		return nil
 	}
 
 	if squareCustomerID == "" {
-		slog.InfoContext(ctx, "cannot update customer when ID field is blank", "event", nestedEvent.String())
+		slog.InfoContext(ctx, "cannot update customer when ID field is blank", "event", nestedEvent)
 		return nil
 	}
 

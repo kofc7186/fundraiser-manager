@@ -287,7 +287,7 @@ func PaymentWatcher(ctx context.Context, e event.Event) error {
 	// there are two CloudEvents - one for the pubsub message "event", and then the data within
 	var msg eventschemas.MessagePublishedData
 	if err := e.DataAs(&msg); err != nil {
-		slog.Error(err.Error(), "event", e)
+		slog.ErrorContext(ctx, err.Error(), "event", e)
 		return err
 	}
 
@@ -304,6 +304,7 @@ func PaymentWatcher(ctx context.Context, e event.Event) error {
 	case eventschemas.PaymentCreatedType:
 		pc := &eventschemas.PaymentCreated{}
 		if err := nestedEvent.DataAs(pc); err != nil {
+			slog.ErrorContext(ctx, err.Error(), "event", nestedEvent)
 			return err
 		}
 		idempotencyKey = pc.IdempotencyKey
@@ -311,13 +312,14 @@ func PaymentWatcher(ctx context.Context, e event.Event) error {
 	case eventschemas.PaymentUpdatedType:
 		pu := &eventschemas.PaymentUpdated{}
 		if err := nestedEvent.DataAs(pu); err != nil {
+			slog.ErrorContext(ctx, err.Error(), "event", nestedEvent)
 			return err
 		}
 		idempotencyKey = pu.IdempotencyKey
 		paymentToProcess = pu.Payment
 		fieldsInPaymentUpdate = pu.UpdatedFields
 	default:
-		slog.DebugContext(ctx, fmt.Sprintf("squelching %q event", e.Type()), "event", nestedEvent.String())
+		slog.DebugContext(ctx, fmt.Sprintf("squelching %q event", e.Type()), "event", nestedEvent)
 		return nil
 	}
 
@@ -325,17 +327,19 @@ func PaymentWatcher(ctx context.Context, e event.Event) error {
 	return firestoreClient.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 		docSnaps, err := tx.Documents(docs).GetAll()
 		if err != nil {
+			slog.ErrorContext(ctx, err.Error(), "event", nestedEvent)
 			return err
 		}
 		if len(docSnaps) == 0 {
 			// there is no order object for the payment we just saw, we should request it via Square API
 			if paymentToProcess.SquareOrderID == "" {
-				slog.InfoContext(ctx, "no order ID for payment event")
+				slog.InfoContext(ctx, "no order ID for payment event", "paymentID", paymentToProcess.ID)
 				return nil
 			}
 			getOrderEvent := eventschemas.NewSquareRetrieveOrderRequest(paymentToProcess.SquareOrderID)
 			eventJSON, err := getOrderEvent.MarshalJSON()
 			if err != nil {
+				slog.ErrorContext(ctx, err.Error(), "event", nestedEvent)
 				return err
 			}
 			timeoutContext, cancel := context.WithTimeout(context.Background(), PUBLISH_TIMEOUT_SEC)
@@ -344,10 +348,18 @@ func PaymentWatcher(ctx context.Context, e event.Event) error {
 			publishResult := squareOrderRequestTopic.Publish(timeoutContext, &pubsub.Message{Data: eventJSON})
 			messageID, err := publishResult.Get(timeoutContext) // this call blocks until complete or timeout occurs
 			if err != nil {
+				slog.ErrorContext(ctx, err.Error(), "event", nestedEvent)
 				return err
 			}
 			slog.InfoContext(ctx, "published SquareRetrieveOrderRequest during payment processing", "messageID", messageID, "orderID", paymentToProcess.SquareOrderID)
-			return nil
+
+			// TODO: write order with fields from payment
+			pendingOrder, err := orderType.CreateOrderFromPayment(*paymentToProcess)
+			if err != nil {
+				slog.ErrorContext(ctx, err.Error(), "event", nestedEvent)
+				return err
+			}
+			return tx.Create(firestoreClient.Doc(fmt.Sprintf("%s/%s", orderDocPath, pendingOrder.ID)), pendingOrder)
 		}
 		for _, docSnap := range docSnaps {
 			// if we're here, we have updated payment information for a valid order
@@ -372,18 +384,39 @@ func PaymentWatcher(ctx context.Context, e event.Event) error {
 				Value: order.IdempotencyKeys,
 			}}
 			// default to a create event, where we'd want to try to update all relevant fields
-			updateFields := []string{"feeAmount", "note", "squareCustomerID", "tipAmount", "totalAmount"}
+			updateFields := []string{"emailAddress", "feeAmount", "firstName", "lastName", "note", "squareCustomerID", "tipAmount", "totalAmount"}
 			if len(fieldsInPaymentUpdate) > 0 {
 				// this is an update event, so only touch the fields that have changed in the payment object
 				updateFields = fieldsInPaymentUpdate
 			}
 			for _, field := range updateFields {
 				switch field {
+				case "emailAddress":
+					if paymentToProcess.EmailAddress != "" {
+						updates = append(updates, firestore.Update{
+							Path:  field,
+							Value: paymentToProcess.EmailAddress,
+						})
+					}
 				case "feeAmount":
 					updates = append(updates, firestore.Update{
 						Path:  field,
 						Value: paymentToProcess.FeeAmount,
 					})
+				case "firstName":
+					if paymentToProcess.FirstName != "" {
+						updates = append(updates, firestore.Update{
+							Path:  field,
+							Value: paymentToProcess.FirstName,
+						})
+					}
+				case "lastName":
+					if paymentToProcess.FirstName != "" {
+						updates = append(updates, firestore.Update{
+							Path:  field,
+							Value: paymentToProcess.LastName,
+						})
+					}
 				case "note":
 					if !strings.Contains(order.Note, paymentToProcess.Note) {
 						var orderPrefix string
@@ -459,7 +492,7 @@ func CustomerWatcher(ctx context.Context, e event.Event) error {
 		customerToProcess = ru.Customer
 		fieldsInCustomerUpdate = ru.UpdatedFields
 	default:
-		slog.DebugContext(ctx, fmt.Sprintf("squelching %q event", e.Type()), "event", nestedEvent.String())
+		slog.DebugContext(ctx, fmt.Sprintf("squelching %q event", e.Type()), "event", nestedEvent)
 		return nil
 	}
 
@@ -468,6 +501,9 @@ func CustomerWatcher(ctx context.Context, e event.Event) error {
 		orderSnaps, err := tx.Documents(docs).GetAll()
 		if err != nil {
 			return err
+		}
+		if len(orderSnaps) == 0 {
+			slog.DebugContext(ctx, "no orders were found to be updated via customerID", "customerID", customerToProcess.ID)
 		}
 		for _, orderSnap := range orderSnaps {
 			// if we're here, we have updated customer information for a valid order
@@ -500,35 +536,31 @@ func CustomerWatcher(ctx context.Context, e event.Event) error {
 			for _, field := range updateFields {
 				switch field {
 				case "emailAddress":
-					updates = append(updates, firestore.Update{
-						Path:  field,
-						Value: customerToProcess.EmailAddress,
-					})
-				case "phoneNumber":
-					updates = append(updates, firestore.Update{
-						Path:  field,
-						Value: customerToProcess.PhoneNumber,
-					})
-				case "lastName":
-					updates = append(updates, firestore.Update{
-						Path:  field,
-						Value: customerToProcess.LastName,
-					})
-					if order.DisplayName == "" {
+					if order.EmailAddress == "" {
 						updates = append(updates, firestore.Update{
-							Path:  "displayName",
-							Value: customerToProcess.FirstName + " " + customerToProcess.LastName,
+							Path:  field,
+							Value: customerToProcess.EmailAddress,
+						})
+					}
+				case "phoneNumber":
+					if order.PhoneNumber == "" {
+						updates = append(updates, firestore.Update{
+							Path:  field,
+							Value: customerToProcess.PhoneNumber,
+						})
+					}
+				case "lastName":
+					if order.LastName == "" {
+						updates = append(updates, firestore.Update{
+							Path:  field,
+							Value: customerToProcess.LastName,
 						})
 					}
 				case "firstName":
-					updates = append(updates, firestore.Update{
-						Path:  field,
-						Value: customerToProcess.FirstName,
-					})
-					if order.DisplayName == "" {
+					if order.FirstName == "" {
 						updates = append(updates, firestore.Update{
-							Path:  "displayName",
-							Value: customerToProcess.FirstName + " " + customerToProcess.LastName,
+							Path:  field,
+							Value: customerToProcess.FirstName,
 						})
 					}
 				case "isKnight":

@@ -50,8 +50,11 @@ func parsePaymentSource(source string) (PaymentSource, error) {
 }
 
 type Payment struct {
+	EmailAddress      string          `json:"emailAddress" firestore:"emailAddress"`
 	Expiration        time.Time       `json:"expiration" firestore:"expiration"`
 	FeeAmount         float64         `json:"feeAmount" firestore:"feeAmount"`
+	FirstName         string          `json:"firstName" firestore:"firstName"`
+	LastName          string          `json:"lastName" firestore:"lastName"`
 	ID                string          `json:"id" firestore:"id"`
 	IdempotencyKeys   map[string]bool `json:"idempotencyKeys" firestore:"idempotencyKeys"`
 	Note              string          `json:"note" firestore:"note"`
@@ -69,12 +72,18 @@ type Payment struct {
 
 func CreateInternalPaymentFromSquarePayment(squarePayment models.Payment) (*Payment, error) {
 	p := &Payment{
+		EmailAddress:     squarePayment.BuyerEmailAddress,
 		ID:               squarePayment.Id,
 		Note:             squarePayment.Note,
 		ReceiptURL:       squarePayment.ReceiptUrl,
 		SquareCustomerID: squarePayment.CustomerId,
 		SquareOrderID:    squarePayment.OrderId,
 		SquareRefundIDs:  squarePayment.RefundIds,
+	}
+
+	if squarePayment.ShippingAddress != nil {
+		p.FirstName = squarePayment.ShippingAddress.FirstName
+		p.LastName = squarePayment.ShippingAddress.LastName
 	}
 
 	if squarePayment.TipMoney != nil {

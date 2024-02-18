@@ -326,7 +326,7 @@ func RefundWatcher(ctx context.Context, e event.Event) error {
 		idempotencyKey = rd.IdempotencyKey
 		refundToProcess = rd.Refund
 	default:
-		slog.DebugContext(ctx, fmt.Sprintf("squelching %q event", e.Type()), "event", nestedEvent.String())
+		slog.DebugContext(ctx, fmt.Sprintf("squelching %q event", e.Type()), "event", nestedEvent)
 		return nil
 	}
 
@@ -384,7 +384,7 @@ func RefundWatcher(ctx context.Context, e event.Event) error {
 				persistedPayment.FeeAmount -= refundToProcess.FeeAmount
 				persistedPayment.SquareRefundIDs = append(persistedPayment.SquareRefundIDs, refundToProcess.ID)
 			default:
-				slog.DebugContext(ctx, fmt.Sprintf("ignoring refund create with %q status", refundToProcess.Status), "event", nestedEvent.String())
+				slog.DebugContext(ctx, fmt.Sprintf("ignoring refund create with %q status", refundToProcess.Status), "event", nestedEvent)
 				// fall through to write idempotencyKey update
 			}
 		case eventschemas.RefundUpdatedType:
@@ -404,7 +404,7 @@ func RefundWatcher(ctx context.Context, e event.Event) error {
 					persistedPayment.FeeAmount += refundToProcess.FeeAmount
 				}
 			default:
-				slog.DebugContext(ctx, fmt.Sprintf("ignoring refund update with %q status", refundToProcess.Status), "event", nestedEvent.String())
+				slog.DebugContext(ctx, fmt.Sprintf("ignoring refund update with %q status", refundToProcess.Status), "event", nestedEvent)
 				// fall through to write idempotencyKey update
 			}
 		case eventschemas.RefundDeletedType:
@@ -412,7 +412,7 @@ func RefundWatcher(ctx context.Context, e event.Event) error {
 				persistedPayment.RefundAmount -= refundToProcess.RefundAmount
 				persistedPayment.FeeAmount += refundToProcess.FeeAmount
 			} else {
-				slog.DebugContext(ctx, "ignoring refund delete", "event", nestedEvent.String())
+				slog.DebugContext(ctx, "ignoring refund delete", "event", nestedEvent)
 				// fall through to write idempotencyKey update
 			}
 		}
@@ -422,7 +422,7 @@ func RefundWatcher(ctx context.Context, e event.Event) error {
 			return err
 		}
 
-		slog.DebugContext(ctx, "updated payment for refund change", "event", nestedEvent.String())
+		slog.DebugContext(ctx, "updated payment for refund change", "event", nestedEvent)
 		return nil
 	}
 

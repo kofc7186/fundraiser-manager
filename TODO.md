@@ -52,6 +52,8 @@
 
 & customer-controller and payment-controller should listen for OrderIncomplete events, and respond with sending the latest known-good CustomerUpdated / PaymentUpdated events
 
+* double check idempotencyKey of "" - shouldn't we set this to something?
+
 CreateOrderFromPayment
 Need a consistent function for validing order transition to go from UNKNOWN to (ONLINE | PRESENT)
 

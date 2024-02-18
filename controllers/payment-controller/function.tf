@@ -210,7 +210,7 @@ resource "google_cloud_scheduler_job" "pull_payments" {
   lifecycle {
     ignore_changes = [ pubsub_target[0].data ]
     postcondition {
-      condition     = var.pull_payments_enabled && (var.pull_payments_begin_time != "" && var.pull_payments_end_time != "" && var.pull_payments_schedule != "")
+      condition     = (var.pull_payments_enabled == false) || ((var.pull_payments_enabled == true) && (var.pull_payments_begin_time != "" && var.pull_payments_end_time != "" && var.pull_payments_schedule != ""))
       error_message = "if pull_payments_enabled == true, then begin_time, end_time, and schedule MUST be set"
     }
   }
