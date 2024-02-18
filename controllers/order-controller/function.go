@@ -359,7 +359,7 @@ func PaymentWatcher(ctx context.Context, e event.Event) error {
 				slog.ErrorContext(ctx, err.Error(), "event", nestedEvent)
 				return err
 			}
-			return tx.Create(firestoreClient.Doc(fmt.Sprintf("%s/%s", orderDocPath, pendingOrder.ID)), pendingOrder)
+			return tx.Set(firestoreClient.Doc(fmt.Sprintf("%s/%s", orderDocPath, pendingOrder.ID)), pendingOrder)
 		}
 		for _, docSnap := range docSnaps {
 			// if we're here, we have updated payment information for a valid order
