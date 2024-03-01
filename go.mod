@@ -5,7 +5,7 @@ go 1.21
 require (
 	github.com/antihax/optional v1.0.0
 	github.com/cloudevents/sdk-go/v2 v2.15.0
-	github.com/google/uuid v1.5.0
+	github.com/google/uuid v1.6.0
 	github.com/googleapis/google-cloudevents-go v0.7.1
 	golang.org/x/oauth2 v0.16.0
 )
