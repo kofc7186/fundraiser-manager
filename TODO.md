@@ -8,7 +8,6 @@
 
 * passing names of topics down does not introduce terraform dependency on objects, such that topic creation happens before function initialization
 
-* square-webhook-ingress URL does not contain fundraiser ID in it, so if we ever wanted to run more than one fundraiser at a time this might be a problem
 * note max of 3 webhook URLs from Square to endpoints (per square 'app')
 * terraform configuration of square webhook config
 
