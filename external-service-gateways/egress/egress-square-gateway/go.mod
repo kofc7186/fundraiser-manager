@@ -6,7 +6,7 @@ replace github.com/kofc7186/fundraiser-manager => ../../../
 
 require (
 	cloud.google.com/go/pubsub v1.34.0
-	github.com/GoogleCloudPlatform/functions-framework-go v1.8.0
+	github.com/GoogleCloudPlatform/functions-framework-go v1.8.1
 	github.com/antihax/optional v1.0.0
 	github.com/cloudevents/sdk-go/v2 v2.15.0
 	github.com/hashicorp/go-retryablehttp v0.7.5
