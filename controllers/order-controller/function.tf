@@ -54,7 +54,7 @@ data "archive_file" "function_source_zip" {
 }
 
 resource "google_storage_bucket_object" "function_source_object" {
-  name   = "${local.function_group}/${data.archive_file.function_source_zip.output_md5}-source.zip"
+  name   = "${local.function_group}/${var.fundraiser_id}-${data.archive_file.function_source_zip.output_md5}-source.zip"
   bucket = var.gcs_function_source_bucket
   source = data.archive_file.function_source_zip.output_path
 }
@@ -166,43 +166,6 @@ resource "google_cloudfunctions2_function" "payment-watcher" {
     trigger_region = var.gcp_region
     event_type     = "google.cloud.pubsub.topic.v1.messagePublished"
     pubsub_topic   = "projects/${var.gcp_project_id}/topics/${var.payment_events_topic}"
-    retry_policy   = "RETRY_POLICY_RETRY"
-  }
-}
-
-resource "google_cloudfunctions2_function" "square-order-response" {
-  name     = "${local.function_group}-${var.fundraiser_id}-square-order-response"
-  location = var.gcp_region
-
-  build_config {
-    runtime     = "go121"
-    entry_point = "ProcessSquareRetrieveOrderResponse"
-    source {
-      storage_source {
-        bucket = var.gcs_function_source_bucket
-        object = google_storage_bucket_object.function_source_object.name
-      }
-    }
-  }
-
-  service_config {
-    available_memory   = "128Mi"
-    timeout_seconds    = 60
-    min_instance_count = var.min_instance_count
-
-    environment_variables = {
-      GCP_PROJECT                = var.gcp_project_id
-      EXPIRATION_TIME            = var.expiration_time
-      FUNDRAISER_ID              = var.fundraiser_id
-      ORDER_EVENTS_TOPIC         = var.order_events_topic
-      SQUARE_ORDER_REQUEST_TOPIC = var.square_order_request_topic
-    }
-  }
-
-  event_trigger {
-    trigger_region = var.gcp_region
-    event_type     = "google.cloud.pubsub.topic.v1.messagePublished"
-    pubsub_topic   = "projects/${var.gcp_project_id}/topics/${var.square_order_response_topic}"
     retry_policy   = "RETRY_POLICY_RETRY"
   }
 }

@@ -55,7 +55,7 @@ data "archive_file" "function_source_zip" {
 }
 
 resource "google_storage_bucket_object" "function_source_object" {
-  name   = "${local.function_group}/${data.archive_file.function_source_zip.output_md5}-source.zip"
+  name   = "${local.function_group}/${var.fundraiser_id}-${data.archive_file.function_source_zip.output_md5}-source.zip"
   bucket = var.gcs_function_source_bucket
   source = data.archive_file.function_source_zip.output_path
 }
@@ -180,7 +180,7 @@ resource "google_cloudfunctions2_function" "payment-controller-square-payment-re
 }
 
 resource "google_cloud_scheduler_job" "pull_payments" {
-  name        = "pull_square_payments"
+  name        = "${var.fundraiser_id}-pull_square_payments"
   # the description string contains the begin & end times to force an update if those value change
   description = "Pulling events from ${var.pull_payments_begin_time} to ${var.pull_payments_end_time}"
 

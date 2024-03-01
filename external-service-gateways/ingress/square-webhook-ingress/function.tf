@@ -54,13 +54,13 @@ data "archive_file" "function_source_zip" {
 }
 
 resource "google_storage_bucket_object" "function_source_object" {
-  name   = "${local.function_group}/${data.archive_file.function_source_zip.output_md5}-source.zip"
+  name   = "${local.function_group}/${var.fundraiser_id}-${data.archive_file.function_source_zip.output_md5}-source.zip"
   bucket = var.gcs_function_source_bucket
   source = data.archive_file.function_source_zip.output_path
 }
 
 resource "google_cloudfunctions2_function" "webhook" {
-  name     = local.function_group
+  name     = "${local.function_group}-${var.fundraiser_id}"
   location = var.gcp_region
 
   build_config {
@@ -108,7 +108,7 @@ resource "google_cloud_run_service_iam_member" "webhook" {
 
 # contains Square signature key to validate that webhook came from Square
 resource "google_secret_manager_secret" "square_signature_key" {
-  secret_id = "square_signature_key"
+  secret_id = "${var.fundraiser_id}-square_signature_key"
 
   replication {
     auto {}

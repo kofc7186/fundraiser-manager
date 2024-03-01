@@ -69,7 +69,7 @@ data "archive_file" "function_source_zip" {
 }
 
 resource "google_storage_bucket_object" "function_source_object" {
-  name   = "${local.function_group}/${data.archive_file.function_source_zip.output_md5}-source.zip"
+  name   = "${local.function_group}/${var.fundraiser_id}-${data.archive_file.function_source_zip.output_md5}-source.zip"
   bucket = var.gcs_function_source_bucket
   source = data.archive_file.function_source_zip.output_path
 }
@@ -126,7 +126,7 @@ resource "google_cloudfunctions2_function" "egress_square_gateway" {
 # contains Square Access Token used to authenticate Square API calls
 # this is manually entered into GCP Secret Manager after creating the object
 resource "google_secret_manager_secret" "square_access_token" {
-  secret_id = "square_access_token"
+  secret_id = "${var.fundraiser_id}-square_access_token"
 
   replication {
     auto {}

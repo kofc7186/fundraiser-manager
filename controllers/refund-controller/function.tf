@@ -54,7 +54,7 @@ data "archive_file" "function_source_zip" {
 }
 
 resource "google_storage_bucket_object" "function_source_object" {
-  name   = "${local.function_group}/${data.archive_file.function_source_zip.output_md5}-source.zip"
+  name   = "${local.function_group}/${var.fundraiser_id}-${data.archive_file.function_source_zip.output_md5}-source.zip"
   bucket = var.gcs_function_source_bucket
   source = data.archive_file.function_source_zip.output_path
 }
