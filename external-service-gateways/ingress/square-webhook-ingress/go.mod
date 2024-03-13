@@ -7,7 +7,7 @@ replace github.com/kofc7186/fundraiser-manager => ../../../
 require (
 	cloud.google.com/go/pubsub v1.36.2
 	github.com/GoogleCloudPlatform/functions-framework-go v1.8.1
-	github.com/cloudevents/sdk-go/v2 v2.15.1
+	github.com/cloudevents/sdk-go/v2 v2.15.2
 	github.com/kofc7186/fundraiser-manager v0.0.0-00010101000000-000000000000
 )
 
@@ -52,5 +52,5 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20240221002015-b0ce06bbee7c // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240213162025-012b6fc9bca9 // indirect
 	google.golang.org/grpc v1.61.1 // indirect
-	google.golang.org/protobuf v1.32.0 // indirect
+	google.golang.org/protobuf v1.33.0 // indirect
 )
