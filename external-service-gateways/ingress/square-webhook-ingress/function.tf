@@ -9,7 +9,7 @@ locals {
     fileset("${path.module}", "**terraform/**"), # terraform files
     fileset("${path.module}", "*source-*.zip")   # other source zips
   )
-  webhook_url = format("https://%s-%s.cloudfunctions.net/%s", var.gcp_region, var.gcp_project_id, local.function_group)
+  webhook_url = format("https://%s-%s.cloudfunctions.net/%s-%s", var.gcp_region, var.gcp_project_id, local.function_group, var.fundraiser_id)
 }
 
 resource "google_project_service" "service" {

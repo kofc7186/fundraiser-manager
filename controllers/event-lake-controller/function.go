@@ -44,14 +44,14 @@ func EventLakeCapture(ctx context.Context, e event.Event) error {
 	// there are two CloudEvents - one for the pubsub message "event", and then the data within
 	var msg eventschemas.MessagePublishedData
 	if err := e.DataAs(&msg); err != nil {
-		slog.Error(err.Error(), "event", e)
+		slog.ErrorContext(ctx, err.Error(), "event", e)
 		return err
 	}
 
 	// extract nested CloudEvent contents as arbitrary JSON to store in event lake
 	eventMap := make(map[string]interface{})
 	if err := json.Unmarshal(msg.Message.Data, &eventMap); err != nil {
-		slog.Error(err.Error(), "data", msg.Message.Data)
+		slog.ErrorContext(ctx, err.Error(), "data", msg.Message.Data)
 		return err
 	}
 

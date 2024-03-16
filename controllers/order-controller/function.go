@@ -87,7 +87,7 @@ func ProcessSquareRetrieveOrderResponse(ctx context.Context, e event.Event) erro
 	// there are two CloudEvents - one for the pubsub message "event", and then the data within
 	var msg eventschemas.MessagePublishedData
 	if err := e.DataAs(&msg); err != nil {
-		slog.Error(err.Error(), "event", e)
+		slog.ErrorContext(ctx, err.Error(), "event", e)
 		return err
 	}
 
@@ -153,6 +153,8 @@ func writeSquareOrderToFirestore(ctx context.Context, e *event.Event) error {
 						if err := tx.Set(fundraiserDocRef, FundraiserDoc{OrderNumber: orderNumber}); err != nil {
 							return err
 						}
+					} else {
+						return err
 					}
 				} else {
 					fundraiserDoc := &FundraiserDoc{}
@@ -192,7 +194,7 @@ func writeSquareOrderToFirestore(ctx context.Context, e *event.Event) error {
 		}
 
 		// check to see if this square event is out of order
-		if persistedOrder.SquareUpdatedTime.After(proposedOrder.SquareUpdatedTime) {
+		if persistedOrder.SquareUpdatedTime.After(proposedOrder.SquareUpdatedTime) || persistedOrder.Version >= proposedOrder.Version {
 			// we've already processed a newer update from square, so ignore it
 			slog.DebugContext(ctx, "skipped out of order event seen from Square", "idempotencyKey", idempotencyKey)
 			return nil
@@ -203,7 +205,9 @@ func writeSquareOrderToFirestore(ctx context.Context, e *event.Event) error {
 			proposedOrder.IdempotencyKeys[key] = val
 		}
 
-		// if we get here, we have a newer proposal for customer so let's write it
+		// TODO: handle field updates
+
+		// if we get here, we have a newer proposal for order so let's write it
 		attemptedWrite = true
 		return tx.Set(docRef, proposedOrder)
 	}
@@ -356,8 +360,8 @@ func PaymentWatcher(ctx context.Context, e event.Event) error {
 			// TODO: write order with fields from payment
 			pendingOrder, err := orderType.CreateOrderFromPayment(*paymentToProcess)
 			if err != nil {
-				slog.ErrorContext(ctx, err.Error(), "event", nestedEvent)
-				return err
+				slog.DebugContext(ctx, fmt.Sprintf("order could not be created from payment: %v", err), "event", nestedEvent)
+				return nil
 			}
 			return tx.Set(firestoreClient.Doc(fmt.Sprintf("%s/%s", orderDocPath, pendingOrder.ID)), pendingOrder)
 		}

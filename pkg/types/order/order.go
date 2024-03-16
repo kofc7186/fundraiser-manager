@@ -65,6 +65,28 @@ func parseOrderStatus(status string) (OrderStatus, error) {
 	return ORDER_STATUS_UNKNOWN, fmt.Errorf("%q is not a valid OrderStatus", status)
 }
 
+// This is the type of the item within an order
+type OrderItemType string
+
+const (
+	ORDER_ITEM_TYPE_UNKNOWN       OrderItemType = ""
+	ORDER_ITEM_TYPE_ITEM          OrderItemType = "ITEM"
+	ORDER_ITEM_TYPE_CUSTOM_AMOUNT OrderItemType = "CUSTOM_AMOUNT"
+	ORDER_ITEM_TYPE_GIFT_CARD     OrderItemType = "GIFT_CARD"
+)
+
+func parseOrderItemType(itemType string) (OrderItemType, error) {
+	switch OrderItemType(itemType) {
+	case ORDER_ITEM_TYPE_ITEM:
+		return ORDER_ITEM_TYPE_ITEM, nil
+	case ORDER_ITEM_TYPE_CUSTOM_AMOUNT:
+		return ORDER_ITEM_TYPE_CUSTOM_AMOUNT, nil
+	case ORDER_ITEM_TYPE_GIFT_CARD:
+		return ORDER_ITEM_TYPE_GIFT_CARD, nil
+	}
+	return ORDER_ITEM_TYPE_UNKNOWN, fmt.Errorf("%q is not a valid OrderItemType", itemType)
+}
+
 type OrderStatusTransition struct {
 	PreviousStatus OrderStatus
 	Status         OrderStatus
@@ -77,6 +99,7 @@ type OrderItem struct {
 	Name                  string          `json:"name" firestore:"name"`
 	Note                  string          `json:"note" firestore:"note"`
 	Quantity              string          `json:"quantity" firestore:"quantity"`
+	SquareItemType        OrderItemType   `json:"squareItemType" firestore:"squareItemType"`
 	Variation             string          `json:"variation" firestore:"variation"`
 }
 
@@ -152,6 +175,18 @@ func CreateInternalOrderFromSquareOrder(squareOrder models.Order) (*Order, error
 		}
 	}
 
+	// TODO: orders can technically be associated with multiple payments, but our code assumes it is a 1:1 mapping
+	if len(squareOrder.Tenders) == 1 {
+		tender := squareOrder.Tenders[0]
+
+		if o.SquarePaymentID == "" {
+			o.SquarePaymentID = tender.PaymentId
+		}
+		if o.SquareCustomerID == "" {
+			o.SquareCustomerID = tender.CustomerId
+		}
+	}
+
 	for _, item := range squareOrder.LineItems {
 		orderItem := OrderItem{
 			Name:                  item.Name,
@@ -160,6 +195,12 @@ func CreateInternalOrderFromSquareOrder(squareOrder models.Order) (*Order, error
 			SquareCatalogObjectID: item.CatalogObjectId,
 			Variation:             item.VariationName,
 		}
+
+		orderItem.SquareItemType, err = parseOrderItemType(item.ItemType)
+		if err != nil {
+			return nil, err
+		}
+
 		for _, modifier := range item.Modifiers {
 			orderItemModifier := OrderModifier{
 				Name:                  modifier.Name,
@@ -168,6 +209,7 @@ func CreateInternalOrderFromSquareOrder(squareOrder models.Order) (*Order, error
 			}
 			orderItem.Modifiers = append(orderItem.Modifiers, orderItemModifier)
 		}
+		o.Items = append(o.Items, orderItem)
 	}
 
 	if o.SquareOrderState, err = parseSquareOrderState(squareOrder.State); err != nil {
@@ -198,17 +240,20 @@ func CreateOrderFromPayment(payment paymentType.Payment) (*Order, error) {
 	}
 
 	o := &Order{
-		EmailAddress:    payment.EmailAddress,
-		Expedite:        false, // make default explicit
-		FeeAmount:       payment.FeeAmount,
-		FirstName:       payment.FirstName,
-		ID:              payment.SquareOrderID,
-		LastName:        payment.LastName,
-		ReceiptURL:      payment.ReceiptURL,
-		SquarePaymentID: payment.ID,
-		Status:          ORDER_STATUS_UNKNOWN,
-		TipAmount:       payment.TipAmount,
-		TotalAmount:     payment.TotalAmount,
+		DisplayName:      fmt.Sprintf("%s %s", payment.FirstName, payment.LastName),
+		EmailAddress:     payment.EmailAddress,
+		Expedite:         false, // make default explicit
+		FeeAmount:        payment.FeeAmount,
+		FirstName:        payment.FirstName,
+		ID:               payment.SquareOrderID,
+		LastName:         payment.LastName,
+		ReceiptURL:       payment.ReceiptURL,
+		Source:           payment.Source,
+		Status:           ORDER_STATUS_UNKNOWN,
+		SquareCustomerID: payment.SquareCustomerID,
+		SquarePaymentID:  payment.ID,
+		TipAmount:        payment.TipAmount,
+		TotalAmount:      payment.TotalAmount,
 	}
 
 	return o, nil

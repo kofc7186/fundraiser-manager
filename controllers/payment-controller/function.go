@@ -336,7 +336,7 @@ func RefundWatcher(ctx context.Context, e event.Event) error {
 		paymentDocSnap, err := t.Get(paymentDocRef)
 		if err != nil {
 			if status.Code(err) == codes.NotFound {
-				// payment object doesn't yet exist, so just write it
+				// payment object doesn't yet exist, so just fetch it
 				getPaymentEvent := eventschemas.NewSquareGetPaymentRequest(refundToProcess.SquarePaymentID)
 				eventJSON, err := getPaymentEvent.MarshalJSON()
 				if err != nil {

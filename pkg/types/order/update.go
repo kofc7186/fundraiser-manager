@@ -3,13 +3,22 @@ package order
 import (
 	"errors"
 	"regexp"
+
+	"github.com/kofc7186/fundraiser-manager/pkg/types/customer"
 )
 
 type OrderUpdateFunc func(*Order, *Order) error
 
+// Customer Create needs all fields updated
+// Customer Update should iterate through fieldmask, applying regex, and if matches call update function
+
+func (o *Order) UpdateFromCustomerCreated(customer *customer.Customer) error {
+	return nil
+}
+
 // updateMap maps eventTypes + fieldMasks (set with 'firestore' struct tags) to specific order update functions
 var updateMap map[*regexp.Regexp]map[*regexp.Regexp][]OrderUpdateFunc = map[*regexp.Regexp]map[*regexp.Regexp][]OrderUpdateFunc{
-	regexp.MustCompile("^org.kofc7186.fundraiserManager.customer.(created|updated)$"): {
+	regexp.MustCompile("^org.kofc7186.fundraiserManager.customer.updated$"): {
 		regexp.MustCompile("^emailAddress$"):         []OrderUpdateFunc{UpdateEmailAddress},
 		regexp.MustCompile("^firstName$"):            []OrderUpdateFunc{UpdateFirstName},
 		regexp.MustCompile("^lastName$"):             []OrderUpdateFunc{UpdateLastName},
@@ -17,7 +26,7 @@ var updateMap map[*regexp.Regexp]map[*regexp.Regexp][]OrderUpdateFunc = map[*reg
 		regexp.MustCompile("^phoneNumber$"):          []OrderUpdateFunc{UpdatePhoneNumber},
 		regexp.MustCompile("^isKnight$"):             []OrderUpdateFunc{UpdateIsKnight},
 	},
-	regexp.MustCompile("^org.kofc7186.fundraiserManager.payment.(created|updated)$"): {
+	regexp.MustCompile("^org.kofc7186.fundraiserManager.payment.updated$"): {
 		regexp.MustCompile("^feeAmount$"):        []OrderUpdateFunc{UpdateEmailAddress},
 		regexp.MustCompile("^note$"):             []OrderUpdateFunc{UpdateEmailAddress},
 		regexp.MustCompile("^receiptURL$"):       []OrderUpdateFunc{UpdateEmailAddress},
@@ -31,6 +40,7 @@ var updateMap map[*regexp.Regexp]map[*regexp.Regexp][]OrderUpdateFunc = map[*reg
 		// CreatedAt, Items, SquareOrderState, Version
 		// []Tender: SquarePaymentId, CustomerId
 		// []Fulfillment/Pickup: CustomerId, DisplayName, EmailAddress, PhoneNumber, Note
+		// Items!
 		regexp.MustCompile(".?"): []OrderUpdateFunc{UpdateEmailAddress},
 	},
 }

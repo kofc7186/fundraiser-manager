@@ -72,7 +72,7 @@ func ProcessSquareRefundWebhookEvent(ctx context.Context, e event.Event) error {
 	// there are two CloudEvents - one for the pubsub message "event", and then the data within
 	var msg eventschemas.MessagePublishedData
 	if err := e.DataAs(&msg); err != nil {
-		slog.Error(err.Error(), "event", e)
+		slog.ErrorContext(ctx, err.Error(), "event", e)
 		return err
 	}
 

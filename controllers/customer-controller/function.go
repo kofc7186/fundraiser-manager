@@ -84,7 +84,7 @@ func ProcessSquareCustomerWebhookEvent(ctx context.Context, e event.Event) error
 	// there are two CloudEvents - one for the pubsub message "event", and then the data within
 	var msg eventschemas.MessagePublishedData
 	if err := e.DataAs(&msg); err != nil {
-		slog.Error(err.Error(), "event", e)
+		slog.ErrorContext(ctx, err.Error(), "event", e)
 		return err
 	}
 
@@ -176,7 +176,7 @@ func writeSquareCustomerToFirestore(ctx context.Context, e *event.Event) error {
 		}
 
 		// check to see if this square event is out of order
-		if persistedCustomer.SquareUpdatedTime.After(proposedCustomer.SquareUpdatedTime) {
+		if persistedCustomer.SquareUpdatedTime.After(proposedCustomer.SquareUpdatedTime) || persistedCustomer.Version >= proposedCustomer.Version {
 			// we've already processed a newer update from square, so ignore it
 			slog.DebugContext(ctx, "skipped out of order event seen from Square", "idempotencyKey", idempotencyKey, "event", e)
 			return nil
