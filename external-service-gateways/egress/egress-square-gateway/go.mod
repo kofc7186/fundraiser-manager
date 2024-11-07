@@ -8,7 +8,7 @@ require (
 	cloud.google.com/go/pubsub v1.38.0
 	github.com/GoogleCloudPlatform/functions-framework-go v1.8.1
 	github.com/antihax/optional v1.0.0
-	github.com/cloudevents/sdk-go/v2 v2.15.1
+	github.com/cloudevents/sdk-go/v2 v2.15.2
 	github.com/hashicorp/go-retryablehttp v0.7.7
 	github.com/kofc7186/fundraiser-manager v0.0.0-00010101000000-000000000000
 )
