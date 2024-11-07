@@ -7,11 +7,10 @@ require (
 	github.com/cloudevents/sdk-go/v2 v2.15.1
 	github.com/google/uuid v1.6.0
 	github.com/googleapis/google-cloudevents-go v0.8.0
-	golang.org/x/oauth2 v0.17.0
+	golang.org/x/oauth2 v0.20.0
 )
 
 require (
-	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/json-iterator/go v1.1.10 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421 // indirect
 	github.com/modern-go/reflect2 v0.0.0-20180701023420-4b7aa43c6742 // indirect
